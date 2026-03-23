@@ -37,18 +37,18 @@ Rod name derives from "род", a Russian word meaning lineage.
 
 ## Architecture 
 
-Here is a birds eye view of the architecture ([more info](./argocd/README.md)) 
+Here is a birds eye view of the architecture
 
 ![architecture](./img/rod_architecture.png)
 
 
 ### Components used
 
-* Pomerium for accessing internal tools ([more info](./security/authn+authz/README.md))
-* Prometheus + Thanos for monitoring ([more info](./monitoring/README.md))
-* Grafana Loki + fluentbit for log aggregation ([more info](./logging/README.md))
+* Pomerium for accessing internal tools ([more info](./security/authn+authz/))
+* Prometheus + Thanos for monitoring ([more info](./monitoring/))
+* Grafana Loki + fluentbit for log aggregation ([more info](./logging/))
 * [Konghq](https://konghq.com/solutions/build-on-kubernetes) as api gateway
-* Argocd for CD ([more infor](./argocd/README.md))
+* Argocd for CD ([more info](./argocd/))
 * [Cert manager](cert-manager.io) for managing certificates
 
 ## Why not just use Serverless or PaaS?
