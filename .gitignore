@@ -1,0 +1,36 @@
+## Idea ##
+.idea
+
+## Tf ##
+terraform-pre.json
+*.tfstate*
+*.tfstate
+.terraform
+*terraform.tfstate.backup*
+debug.tf
+terraform.tfplan
+.terraform/
+.aws.env
+.aws.profile
+
+## .env ##
+.env
+
+## Vim ##
+.*.swp
+
+## bazel ##
+bazel-*
+.bazelrc.ci
+.bazelrc.cloud
+MODULE.bazel.lock
+
+## argocd ##
+argocd/charts/**/charts
+
+
+## test files ##
+123
+
+## python ##
+venv
