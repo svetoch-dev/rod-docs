@@ -20,7 +20,7 @@ Logging consists of several components
 
 # Architecture proposal
 
-![logging](logging.png)
+![logging](./img/logging.png)
 
 ## Explanation
 
