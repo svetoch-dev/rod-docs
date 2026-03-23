@@ -12,8 +12,8 @@ Rod name derives from "род", a Russian word meaning lineage.
 4. We use a dedicated environment named `internal` for **internal tooling**, such as monitoring, log aggregation, and CI/CD systems.
 5. Every part of the infrastructure is **defined as code**.
 6. Our primary tools are:
-    1. `terraform` ([more info](./tf/README.md)) + `helm` for Infrastructure as Code
-    2. `argocd` ([more info](./argocd/README.md)) for continuous delivery
+    1. `terraform` ([more info](./tf/)) + `helm` for Infrastructure as Code
+    2. `argocd` ([more info](./argocd/)) for continuous delivery
     3. `bazel` for:
         - dependency management
         - building and testing only things that have changed
