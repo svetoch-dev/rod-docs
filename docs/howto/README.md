@@ -6,10 +6,17 @@
 
 ## Running tf localy
 
-1. [Running tf](tf_run.md)
-2. [gcp](tf_run_gcp.md)
-3. [yc](tf_run_yc.md)
-4. [github](tf_run_github.md)
+Generic guide [how to run tf](tf_run.md)
+
+### Cloud specific guides
+
+* [gcp](tf_run_gcp.md)
+* [yc](tf_run_yc.md)
+
+### Git repo sepcific guides
+
+* [github](tf_run_github.md)
+* [gitlab](tf_run_gitlab.md)
 
 ## Miscellaneous
 
