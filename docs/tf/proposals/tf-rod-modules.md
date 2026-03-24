@@ -36,30 +36,29 @@ The current structure has several significant limitations:
 
 ## Desired State
 
-To address these issues, we propose introducing an **intermediate module** that abstracts away cloud-specific implementations.
+To address these issues, could be an **intermediate cloud module** that abstracts away cloud-specific implementations.
 
 
 ```
-                                                               |                           -> tf-modules/aws/s3
-                                                               |-> tf-modules/modules/aws  -> tf-modules/aws/networking
-                                                               |                           -> ...
-                                                               |
-                                                               |
-                                                               |                           -> tf-modules/modules/gcp/networking
-environtments/<some_env>/cloud -> tf-modules/modules/rod/cloud |-> tf-modules/modules/gcp  -> tf-modules/modules/gcp/gcs
-                                                               |                           -> ...
-                                                               |
-                                                               |
-                                                               |                           -> tf-modules/modules/yc/ycs
-                                                               |-> tf-modules/modules/yc   -> tf-modules/modules/yc/networking
-                                                               |                           -> ...
+                                  |                                                              -> tf-modules/aws/s3
+                                  |-> tf-modules/modules/rod/cloud/aws -> tf-modules/modules/aws -> tf-modules/aws/networking
+                                  |                                                              -> ...
+                                  |                                    
+                                  |                                     
+                                  |                                                              -> tf-modules/modules/gcp/networking
+environtments/<some_env>/cloud -> |-> tf-modules/modules/rod/cloud/gcp -> tf-modules/modules/gcp -> tf-modules/modules/gcp/gcs
+                                  |                                                              -> ...
+                                  |                                    
+                                  |                                     
+                                  |                                                              -> tf-modules/modules/yc/ycs
+                                  |-> tf-modules/modules/rod/cloud/yc  -> tf-modules/modules/yc  -> tf-modules/modules/yc/networking
+                                  |                                                              -> ...
 
 ```
 
 
 ### Benefits
 
-- Single entry point for cloud-specific resources (`modules/rod/cloud`)
 - Reduced code duplication across projects and environments
 - Easier multi-cloud support
 
@@ -73,7 +72,7 @@ environtments/<some_env>/cloud -> tf-modules/modules/rod/cloud |-> tf-modules/mo
 ...
 
 module "cloud" {
-  source = "git::https://github.com/svetoch-dev/tf-modules.git//modules/rod/cloud?ref=rod-v0.1.0"
+  source = "git::https://github.com/svetoch-dev/tf-modules.git//modules/rod/cloud/{cloud}?ref=rod-v0.1.0"
   cloud = {
     name     = "aws",
     id       = "123456789012",
@@ -89,21 +88,13 @@ module "cloud" {
 }
 ```
 
-2. Based on `var.cloud.name` a specific cloud module is chosen
+
+Based on cloud provider used  bazel templates render `{cloud}` to the providers name which also corresponds to the module name eg `tf-modules/modules/rod/cloud/gcp`. 
+
+2. `tf-modules/modules/rod/cloud/{cloud}` has reference to a cloud module eg
+
 
 ```
-...
-
-module "aws" {
-  source     = "../../aws"
-  count      = var.cloud.name == "aws" ? 1 : 0
-  id         = "123456789012",
-  region     = "us-east1",
-  s3         = local.aws_s3
-  networking = local.aws_networking
-  ...
-}
-
 module "gcp" {
   source     = "../../gcp"
   count      = var.cloud.name == "gcp" ? 1 : 0
@@ -117,8 +108,8 @@ module "gcp" {
   gke_clusters  = local.gcp_gke_clusters
   ....
 }
-
 ```
+
 
 3. Resources are created based on local variables in `<cloud>_<component>_variables.tf` files
 
@@ -129,7 +120,7 @@ module "gcp" {
 ...
 
 module "cloud" {
-  source = "git::https://github.com/svetoch-dev/tf-modules.git//modules/rod/cloud?ref=rod-v0.1.0"
+  source = "git::https://github.com/svetoch-dev/tf-modules.git//modules/rod/cloud/aws?ref=rod-v0.1.0"
   cloud = {
     name     = "aws",
     id       = "123456789012",
