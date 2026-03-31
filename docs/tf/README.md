@@ -90,7 +90,7 @@ Each rod submodule:
 * has a predefined set of resources used by the template
 * allows overriding default resource attributes through the `overrides` input variable
 
-See [this](./proposals/tf-module-structure.md) document for more details.
+See [this](./proposals/tf-rod-modules.md) document for more details.
 
 ## Bazel
 
