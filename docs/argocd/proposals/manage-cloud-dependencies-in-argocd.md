@@ -1,4 +1,4 @@
-# Manage Cloud Dependencies in Argo CD
+# Manage Cloud Dependencies in Argo CD (❌ NOT IMPLEMENTED)
 
 ## Overview
 
