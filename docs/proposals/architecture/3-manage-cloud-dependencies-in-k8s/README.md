@@ -1,16 +1,16 @@
-# Manage Cloud Dependencies in Argo CD (❌ NOT IMPLEMENTED)
+# Manage Cloud Dependencies in k8s
 
 ## Overview
 
-Some Kubernetes applications depend on external cloud resources (e.g., object storage buckets, IAM/service accounts). Examples include Thanos and Loki, which require object storage for persistence.
+Some of our infrastructure applications in Kubernetes depend on object storage buckets and IAM/service accounts. Examples include Thanos and Loki, which require object storage for persistence.
 
 Today, these dependencies are provisioned and managed via Terraform, while application deployment is handled by Argo CD. This split introduces operational complexity and weakens the declarative model we aim for in Kubernetes.
 
-This document proposes managing cloud dependencies directly from Kubernetes using Crossplane.
+This document proposes managing cloud buckets directly from Kubernetes.
 
 ---
 
-## Current State
+### Current State
 
 - Applications are deployed via Argo CD.
 - Cloud resources (e.g., buckets, IAM accounts) are provisioned separately using Terraform.
@@ -18,7 +18,7 @@ This document proposes managing cloud dependencies directly from Kubernetes usin
 
 ---
 
-## Problems
+### Problems
 
 Managing a single application across Argo CD and Terraform introduces several issues:
 
@@ -40,25 +40,29 @@ Managing a single application across Argo CD and Terraform introduces several is
 
 ## Proposed Solution
 
-Adopt Crossplane to manage cloud resources declaratively within Kubernetes.
+Use kuberenetes controller to manage cloud resources declaratively within Kubernetes. Possible options are:
+1. Crossplane
+2. Opensource bucket operator 
+3. Self made object storage operator
+4. Self made [Container object storage interface](https://github.com/kubernetes-sigs/container-object-storage-interface) drivers
 
 ### Key Idea
 
-Define cloud resources (e.g., buckets, IAM roles) as Kubernetes custom resources. These are reconciled by Crossplane providers, which ensure the actual cloud infrastructure matches the desired state.
+Define cloud resources (e.g., buckets, IAM roles) as Kubernetes custom resources. These are reconciled by a controller, which ensure the actual cloud infrastructure matches the desired state.
 
 Applications then consume these resources natively via Kubernetes mechanisms (Secrets, ConfigMaps, Helm values).
 
 ---
 
-## Desired State
+### Desired State
 
 - All application-related resources (Kubernetes + cloud) are defined in a single declarative system (Kubernetes manifests managed by Argo CD).
-- Crossplane controllers provision and manage cloud resources.
+- Controllers provision and manage cloud resources.
 - Applications consume credentials and endpoints directly from Kubernetes.
 
 ---
 
-## Benefits
+### Benefits
 
 1. **Single Source of Truth**
    - Application and infrastructure dependencies are defined together in Kubernetes manifests.
@@ -76,7 +80,7 @@ Applications then consume these resources natively via Kubernetes mechanisms (Se
 
 ---
 
-## Trade-offs
+### Trade-offs
 
 1. **Migration Effort**
    - Existing Terraform-managed resources must be migrated or imported.
@@ -86,26 +90,7 @@ Applications then consume these resources natively via Kubernetes mechanisms (Se
 
 ---
 
-## Example
+## Decision log
 
-A simplified Helm template for provisioning a bucket across different cloud providers:
+[Decision log](./DECISION_LOG.md)
 
-```yaml
-{{- if eq .Values.cloudProvider "gcp" }}
-apiVersion: storage.gcp.upbound.io/v1beta1
-kind: Bucket
-metadata:
-  name: {{ .Values.bucket.name }}
-spec:
-  forProvider:
-    location: {{ .Values.bucket.location }}
-
-{{- else if eq .Values.cloudProvider "aws" }}
-apiVersion: s3.aws.upbound.io/v1beta1
-kind: Bucket
-metadata:
-  name: {{ .Values.bucket.name }}
-spec:
-  forProvider:
-    region: {{ .Values.bucket.region }}
-{{- end }}

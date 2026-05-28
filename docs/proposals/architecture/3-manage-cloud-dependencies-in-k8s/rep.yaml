@@ -1,0 +1,15 @@
+title: Manage Cloud Dependencies in k8s
+rep-number: 3
+authors:
+  - "@gramal"
+component: architecture
+status:
+  name: implementable
+  emoji: 🟢          
+creation-date: 28.05.2026
+reviewers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
+approvers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"

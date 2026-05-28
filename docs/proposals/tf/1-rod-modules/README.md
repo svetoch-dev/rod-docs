@@ -1,6 +1,10 @@
-# Tf module structure (✅ IMPLEMENTED)
+# Dedicated modules for rod
 
-## Current state
+## Overview
+
+Why constantly copy tf code from project to project which is error prone
+
+### Current state
 
 Currently our tf module structure looks like this
 
@@ -22,7 +26,7 @@ environments/<some_env>/github -> tf-modules/module/github -> ....
 tf-modules repository can be found here https://github.com/svetoch-dev/tf-modules
 
 
-### Issues
+### Problems
 
 The current structure has several significant limitations:
 
@@ -34,9 +38,12 @@ The current structure has several significant limitations:
    Every root module in `environments/<some_env>` is tied to a specific cloud or service. This makes managing projects across multiple clouds difficult and error-prone.
 
 
-## Desired State
+## Proposed solution
 
 To address these issues, could be an **intermediate cloud module** that abstracts away cloud-specific implementations.
+
+### Desired State
+
 
 
 ```
@@ -62,9 +69,12 @@ environtments/<some_env>/cloud -> |-> tf-modules/modules/rod/cloud/gcp -> tf-mod
 - Reduced code duplication across projects and environments
 - Easier multi-cloud support
 
+### Trade-offs
 
+- migration effort
+- per environment logic
 
-### Setup
+## Design details
 
 1. Main Terraform Module in envrionment
 
@@ -144,4 +154,3 @@ module "cloud" {
 
 This could be achieved via this providers
 https://github.com/isometry/terraform-provider-deepmerge
-

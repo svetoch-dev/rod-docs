@@ -1,6 +1,10 @@
-# Tf rod module inheritance (❌ NOT IMPLEMENTED)
+# Tf rod module inheritance
 
-## Current state
+## Overview
+
+Inside out rod modules we need to use additional logic when it comes to internal and product envrionments. This can quickly lead to complicated solutions and hard to understand code
+
+### Current state
 
 Currently our tf rod cloud module structure looks like this
 
@@ -54,11 +58,11 @@ locals {
 }
 ```
 
-## Issues
+### Problems
 
 Adding logic like described in the `Current state` section will quickly become cumbersome and error prone. Especially dealing with increaseing amount of clouds we want to support
 
-## Desired State
+## Proposal
 
 To address these issues, we 
 
@@ -73,7 +77,7 @@ To address these issues, we
      * use overrides to set product pecific resource
 
 
-
+### Desired State
 
 Module structure will look like this
 
@@ -116,11 +120,11 @@ environtments/prd/cloud    |-> modules/rod/cloud/gcp/product -> modules/rod/clou
 - Instead of adding more and more logic to `modules/rod/cloud/{cloud}` we inherit from it and override what we need
 - Code becomes easier to understand
 
-### Disadvantages
+### Trade-offs
 
 - Need to duplicate input variables in `modules/rod/cloud/{cloud}`, `modules/rod/cloud/{cloud}/internal`, `modules/rod/cloud/{cloud}/product`
 
-### Setup
+## Design Details
 
 
 1. `modules/rod/cloud/gcp/internal` main.tf file
@@ -155,4 +159,3 @@ locals {
   overrides = provider::deepmerge::mergo(local.overrides_internal, var.overrides)
 }
 ```
-

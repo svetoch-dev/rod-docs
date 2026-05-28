@@ -1,0 +1,15 @@
+title: Tf rod module inheritance
+rep-number: 2
+authors:
+  - "@ggramal"
+component: tf
+status:
+  name: implemented
+  emoji: ✅
+creation-date: 24.03.2026
+reviewers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
+approvers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
