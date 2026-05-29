@@ -20,7 +20,7 @@ Solutions were evaluated against the following acceptance criteria:
 
 | # | Criterion | Description |
 |---|-----------|-------------|
-| 1 | **Exotic Provider Support** | Must support cloud providers like YandexCloud, TimeWeb, Hoster.by, VKCloud that often lack mature ecosystem tooling. Cannot depend on providers having existing Crossplane/operator support. |
+| 1 | **Exotic Provider Support** | Must support cloud providers like YandexCloud, TimeWeb, Hoster.by, VKCloud that often lack mature ecosystem tooling.|
 | 2 | **Provider Maintenance Independence** | Must not be blocked by third-party provider maintenance cycles. We need direct control over adding new resources and attributes without waiting for upstream Terraform provider or upjet updates. |
 | 3 | **Use Case Fit** | Must match our actual use case complexity. We only need to create buckets and grant permissions to cloud principals, not manage entire cloud infrastructure. |
 | 4 | **Maintainability** | Must be feasible to create and maintain given modern development practices. |
