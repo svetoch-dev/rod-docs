@@ -1,0 +1,15 @@
+title: Creating root modules for DNS and registry definitions
+rep-number: 4
+authors:
+  - "@ggramal"
+component: tf
+status:
+  name: implementable
+  emoji: 🟢
+creation-date: 28.04.2026
+reviewers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
+approvers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"

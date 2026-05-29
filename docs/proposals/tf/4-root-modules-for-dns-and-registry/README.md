@@ -1,6 +1,10 @@
-# Creating root modules for DNS and registry definitions (❌ NOT IMPLEMENTED)
+# REP-4: Creating root modules for DNS and registry definitions
 
-## Current state
+## Overview
+
+Currently we support only cloud container registries and DNS but there are other  dns providers and registry providers for which we need to support but do not have an inerface for it
+
+### Current state
 
 DNS zones and container registries are currently created inside the cloud-specific modules:
 
@@ -10,7 +14,7 @@ modules/rod/cloud/{yc,gcp}
 
 This makes DNS and registry management tightly coupled to the selected cloud provider.
 
-## Issues
+### Problems
 
 Different projects may have different infrastructure requirements or constraints. For example:
 
@@ -21,7 +25,35 @@ Different projects may have different infrastructure requirements or constraints
 
 The current structure makes these cases difficult to support because DNS and registry resources are embedded inside cloud modules.
 
-## Desired state
+## Proposal
+
+Create dns and registry root modules
+
+### Desired state
+
+```
+terraform/environments/<env>/dns
+terraform/environments/<env>/registry
+```
+
+### Benefits
+
+* Decouples DNS and registry management from cloud provider modules
+* Supports external DNS providers such as Cloudflare, GoDaddy, and Akamai
+* Supports non-cloud or self-hosted container registries
+* Allows projects to enforce provider-specific requirements
+* Makes DNS and registry implementations easier to extend independently
+* Keeps cloud modules focused on core cloud infrastructure
+
+### Trade-offs
+
+* Requires migration from the current cloud-module-based implementation
+* Adds additional root modules per environment
+* Requires schema changes in `terraform.tfvars.json`
+* Existing projects may need state migration or resource imports
+
+
+## Design Details
 
 ### 1. Extend `terraform.tfvars.json` schema
 
@@ -84,19 +116,3 @@ module "dns" {
   overrides = local.overrides
 }
 ```
-
-## Benefits
-
-* Decouples DNS and registry management from cloud provider modules
-* Supports external DNS providers such as Cloudflare, GoDaddy, and Akamai
-* Supports non-cloud or self-hosted container registries
-* Allows projects to enforce provider-specific requirements
-* Makes DNS and registry implementations easier to extend independently
-* Keeps cloud modules focused on core cloud infrastructure
-
-## Disadvantages
-
-* Requires migration from the current cloud-module-based implementation
-* Adds additional root modules per environment
-* Requires schema changes in `terraform.tfvars.json`
-* Existing projects may need state migration or resource imports
