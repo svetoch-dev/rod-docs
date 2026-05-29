@@ -1,6 +1,6 @@
 # Rod Enhancement Proposals (REPs)
 
-A Rod Enhancement Proposal (REP) is a way to propose, communicate and coordinate on new efforts for the Rod project. You can read the full details of the project in REP-0000.
+A Rod Enhancement Proposal (REP) is a way to propose, communicate and coordinate on new efforts for the Rod project. You can read the full details of the project in [REP-0](./0-rep).
 
 ## Quick start
 
