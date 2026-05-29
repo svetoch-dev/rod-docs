@@ -16,9 +16,13 @@
 
 ## Decision log (Optional)
 `If tool or lib comparison is needed use this section`
+
 **Date:** dd.mm.yyyy
+
 **Status:** dicided|proposed
+
 **Decision:** Some decision
+
 ### Evaluation Criteria
 ### Options Evaluated
 ### Comparison Summary

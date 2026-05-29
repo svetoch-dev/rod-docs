@@ -1,7 +1,9 @@
 # Decision Log: Managing Cloud Dependencies in Kubernetes
 
 **Date:** 29.06.2026
+
 **Status:** proposed
+
 **Decision:** Build a custom lightweight Kubernetes operator for managing object storage buckets and IAM permissions.
 
 ---
