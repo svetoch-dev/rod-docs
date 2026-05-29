@@ -1,7 +1,7 @@
 title: Manage Cloud Dependencies in k8s
 rep-number: 3
 authors:
-  - "@gramal"
+  - "@ggramal"
 component: architecture
 status:
   name: implementable
