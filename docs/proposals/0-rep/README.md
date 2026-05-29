@@ -38,10 +38,6 @@ Introduce a Rod Enhancement Proposal (REP) process modeled after established pra
 - **Overhead**: Small changes may feel bureaucratic. For this reason, trivial bug fixes and documentation typos do not require a REP.
 - **Maintenance**: Someone must periodically archive or update stale proposals.
 
-## Decision log (Optional)
-
-Not applicable — this is the foundational REP that establishes the process itself.
-
 ## Design Details
 
 ### When to Create a REP
@@ -70,7 +66,7 @@ docs/proposals/
 ├── NNNN-rep-template/     # The official template
 │   ├── README.md
 │   └── rep.yaml
-└──<component>/ <number>-<short-name>/ # Individual proposals
+└──<component>/<number>-<short-name>/ # Individual proposals
     ├── README.md
     └── rep.yaml
 ```

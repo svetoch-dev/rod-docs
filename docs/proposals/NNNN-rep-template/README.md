@@ -26,7 +26,7 @@
 ### Evaluation Criteria
 ### Options Evaluated
 ### Comparison Summary
-Comparison Summary
+
 | Option | Evaluation Criteria 1| Evaluation Criteria 2 | Evaluation Criteria N | Verdict |
 |--------|:--------------:|:----------------------:|:----------:|:----------:|
 | Option 1| fits or not with optional comments | fits or not with optional comments| fits or not with optional comments | Selected Or Rejected|
