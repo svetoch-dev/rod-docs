@@ -10,7 +10,6 @@ A Rod Enhancement Proposal (REP) is a way to propose, communicate and coordinate
    2. Change `rep-template` to the title of your change
 3. Adjust `README.md` and `rep.yaml`
 
-
 ## Why REP is needed
 
 REPs are required for most non-trivial changes. Specifically:

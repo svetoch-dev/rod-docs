@@ -52,7 +52,6 @@ terraform/environments/<env>/registry
 * Requires schema changes in `terraform.tfvars.json`
 * Existing projects may need state migration or resource imports
 
-
 ## Design Details
 
 ### 1. Extend `terraform.tfvars.json` schema

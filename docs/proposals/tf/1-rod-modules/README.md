@@ -120,7 +120,6 @@ module "gcp" {
 }
 ```
 
-
 3. Resources are created based on local variables in `<cloud>_<component>_variables.tf` files
 
 

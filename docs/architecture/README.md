@@ -4,7 +4,6 @@ Here is a birds eye view of the architecture
 
 ![architecture](./img/rod_architecture.png)
 
-
 ### Components used
 
 * Pomerium for accessing internal tools ([more info](../security/authn+authz/))

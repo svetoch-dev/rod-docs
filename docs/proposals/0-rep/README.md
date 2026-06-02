@@ -43,15 +43,16 @@ Introduce a Rod Enhancement Proposal (REP) process modeled after established pra
 ### When to Create a REP
 
 A REP is required for:
-- New features or subsystems
+- New major features or subsystems
 - Breaking changes to public APIs or behavior
 - Changes to build, release, or contribution processes
 - Architectural refactoring that affects multiple components
 
 A REP is **not** required for:
+- minor features
 - Bug fixes
 - Documentation corrections
-- Minor dependency updates
+- dependency updates
 - Config-only changes
 
 ### Directory Layout
