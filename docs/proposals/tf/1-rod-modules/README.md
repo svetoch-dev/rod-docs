@@ -44,8 +44,6 @@ To address these issues, could be an **intermediate cloud module** that abstract
 
 ### Desired State
 
-
-
 ```
                                   |                                                              -> tf-modules/aws/s3
                                   |-> tf-modules/modules/rod/cloud/aws -> tf-modules/modules/aws -> tf-modules/aws/networking
