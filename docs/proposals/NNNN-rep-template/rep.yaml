@@ -1,0 +1,13 @@
+title: REP template
+rep-number: NNNN
+authors:
+  - "@jane.doe"
+component: rep
+status:
+  #name: implementable | name: implemented| name: rejected| name: withdrawn| name: replaced
+  #emoji: 🟢           | emoji: ✅        | emoji:  ❌    | emoji: ↩️       | emoji: 🔁
+creation-date: dd.mm.yyyy
+reviewers:
+  - "@alice.doe"
+approvers:
+  - "@oscar.doe"

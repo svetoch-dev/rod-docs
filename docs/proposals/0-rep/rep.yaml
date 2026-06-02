@@ -1,0 +1,15 @@
+title: Rod Enhancement Proposals (REP) Process
+rep-number: 0
+authors:
+  - "@ggramal"
+component: process
+status:
+  name: implementable
+  emoji: 🟢
+creation-date: 28.05.2026
+reviewers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
+approvers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
