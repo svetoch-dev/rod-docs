@@ -52,7 +52,6 @@ The design should support multiple providers, for example:
 
 - GCP
 - AWS
-- Azure
 - Yandex Cloud
 
 The same high-level Kubernetes API should work across providers where possible.
@@ -177,21 +176,21 @@ spec:
       namespace: platform-system
 ```
 
-Example for Azure:
+Example for Yandex Cloud:
 
 ```yaml
 apiVersion: platform.example.com/v1alpha1
 kind: ProviderConfig
 metadata:
-  name: azure-dev
+  name: yc-dev
 spec:
-  type: Azure
-  azure:
-    subscriptionId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    resourceGroup: rg-platform-dev
-    location: westeurope
+  type: Yandex
+  yandex:
+    cloudId: b1g-example-cloud-id
+    folderId: b1g-example-folder-id
+    region: ru-central1
     credentialsSecretRef:
-      name: azure-creds
+      name: yc-creds
       namespace: platform-system
 ```
 
@@ -235,7 +234,7 @@ spec:
 
   unsupportedFeaturePolicy: Fail
 
-  providerConfig:
+  cloudSpecificConfig:
     gcp:
       storageClass: STANDARD
       uniformBucketLevelAccess: true
@@ -290,7 +289,6 @@ Examples:
 ```text
 GCP: service account
 AWS: IAM role or IAM user
-Azure: managed identity or app registration
 Yandex: service account
 ```
 
@@ -408,9 +406,6 @@ GCP:
 
 AWS:
   Kubernetes ServiceAccount can assume an IAM role through IRSA or Pod Identity.
-
-Azure:
-  Kubernetes ServiceAccount uses federated identity with a managed identity or application.
 
 Yandex:
   Provider-specific federation or workload identity mechanism, if supported.
@@ -588,9 +583,6 @@ ObjectWriter:
   AWS:
     s3:PutObject on arn:aws:s3:::bucket/*
 
-  Azure:
-    Storage Blob Data Contributor or equivalent scoped role
-
   Yandex:
     provider-specific object write permission
 ```
@@ -683,19 +675,18 @@ The provider implementation maps this to cloud-specific values:
 ```text
 GCP: ARCHIVE
 AWS: GLACIER or DEEP_ARCHIVE
-Azure: Archive tier
 Yandex: provider-specific cold/archive equivalent
 ```
 
 ### 11.3 Provider-Specific Configuration
 
-Provider-specific fields should be namespaced under `spec.providerConfig`.
+Provider-specific fields should be namespaced under `spec.cloudSpecificConfig`.
 
 Example:
 
 ```yaml
 spec:
-  providerConfig:
+  cloudSpecificConfig:
     aws:
       objectOwnership: BucketOwnerEnforced
       publicAccessBlock:
@@ -708,18 +699,18 @@ spec:
       uniformBucketLevelAccess: true
       publicAccessPrevention: enforced
 
-    azure:
-      allowBlobPublicAccess: false
-      minimumTlsVersion: TLS1_2
+    yandex:
+      defaultStorageClass: STANDARD
+      maxSizeBytes: 10737418240
 ```
 
 Only the matching provider-specific section should be allowed.
 
-For example, if `providerRef` points to GCP but `providerConfig.aws` is set, the controller should fail validation:
+For example, if `providerRef` points to GCP but `cloudSpecificConfig.aws` is set, the controller should fail validation:
 
 ```text
 Reason: InvalidProviderConfig
-Message: providerConfig.aws is set but providerRef points to provider type GCP
+Message: cloudSpecificConfig.aws is set but providerRef points to provider type GCP
 ```
 
 ## 12. Unsupported Feature Policy
@@ -900,7 +891,6 @@ Provider implementations:
 ```text
 internal/cloud/gcp
 internal/cloud/aws
-internal/cloud/azure
 internal/cloud/yandex
 ```
 
@@ -913,8 +903,6 @@ func NewProvider(cfg ProviderConfig) (CloudProvider, error) {
         return gcp.New(cfg)
     case "AWS":
         return aws.New(cfg)
-    case "Azure":
-        return azure.New(cfg)
     case "Yandex":
         return yandex.New(cfg)
     default:
@@ -1307,13 +1295,6 @@ internal/
       auth.go
       access.go
 
-    azure/
-      provider.go
-      buckets.go
-      principals.go
-      auth.go
-      access.go
-
     yandex/
       provider.go
       buckets.go
@@ -1558,7 +1539,7 @@ labels
 versioning
 simple lifecycle expiration rules
 deletionPolicy
-providerConfig.<cloud>
+cloudSpecificConfig.<cloud>
 unsupportedFeaturePolicy
 ```
 
