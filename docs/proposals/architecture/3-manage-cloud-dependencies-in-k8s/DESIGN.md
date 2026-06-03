@@ -1,4 +1,4 @@
-# Design Doc: Multi-Cloud Kubernetes Controller for Buckets, Cloud Principals, Principal Authentication, and Bucket Access
+# Design details
 
 ## 1. Overview
 
