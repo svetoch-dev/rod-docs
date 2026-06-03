@@ -145,7 +145,7 @@ These higher-level CRs can create lower-level `Bucket`, `CloudPrincipal`, `Cloud
 Example for GCP:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: ProviderConfig
 metadata:
   name: gcp-dev
@@ -162,7 +162,7 @@ spec:
 Example for AWS:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: ProviderConfig
 metadata:
   name: aws-dev
@@ -179,7 +179,7 @@ spec:
 Example for Yandex Cloud:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: ProviderConfig
 metadata:
   name: yc-dev
@@ -203,7 +203,7 @@ The controller should not require cloud credentials inside every resource. Resou
 Example:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: Bucket
 metadata:
   name: app-logs
@@ -295,7 +295,7 @@ Yandex: service account
 Example:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: CloudPrincipal
 metadata:
   name: app-logs-writer
@@ -381,7 +381,7 @@ Static credentials should be treated as an escape hatch for systems that cannot 
 ### 9.2 Workload Identity Example
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: CloudPrincipalAuth
 metadata:
   name: app-logs-writer-workload-auth
@@ -414,7 +414,7 @@ Yandex:
 ### 9.3 Static Credentials Example
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: CloudPrincipalAuth
 metadata:
   name: app-logs-writer-static-auth
@@ -521,7 +521,7 @@ It should not create buckets or principals. It should only reference them.
 Example:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: BucketAccess
 metadata:
   name: app-logs-writer-access
@@ -1087,10 +1087,10 @@ External cloud resources must be cleaned up explicitly.
 Recommended finalizers:
 
 ```text
-platform.example.com/bucket-finalizer
-platform.example.com/cloudprincipal-finalizer
-platform.example.com/cloudprincipalauth-finalizer
-platform.example.com/bucketaccess-finalizer
+vedro.svetoch.dev/bucket-finalizer
+vedro.svetoch.dev/cloudprincipal-finalizer
+vedro.svetoch.dev/cloudprincipalauth-finalizer
+vedro.svetoch.dev/bucketaccess-finalizer
 ```
 
 ### 21.1 Bucket Deletion Policy
@@ -1333,7 +1333,7 @@ Example:
 
 ```yaml
 rules:
-  - apiGroups: ["platform.example.com"]
+  - apiGroups: ["vedro.svetoch.dev"]
     resources:
       - providerconfigs
       - buckets
@@ -1342,7 +1342,7 @@ rules:
       - bucketaccesses
     verbs: ["get", "list", "watch"]
 
-  - apiGroups: ["platform.example.com"]
+  - apiGroups: ["vedro.svetoch.dev"]
     resources:
       - buckets
       - cloudprincipals
@@ -1350,7 +1350,7 @@ rules:
       - bucketaccesses
     verbs: ["update", "patch"]
 
-  - apiGroups: ["platform.example.com"]
+  - apiGroups: ["vedro.svetoch.dev"]
     resources:
       - buckets/status
       - cloudprincipals/status
@@ -1429,7 +1429,7 @@ Avoid creating one COSI driver per bucket. Drivers should represent provider/bac
 User creates a bucket:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: Bucket
 metadata:
   name: app-logs
@@ -1447,7 +1447,7 @@ spec:
 User creates a principal:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: CloudPrincipal
 metadata:
   name: app-logs-writer
@@ -1463,7 +1463,7 @@ spec:
 User creates authentication for the principal:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: CloudPrincipalAuth
 metadata:
   name: app-logs-writer-auth
@@ -1483,7 +1483,7 @@ spec:
 User grants bucket access:
 
 ```yaml
-apiVersion: platform.example.com/v1alpha1
+apiVersion: vedro.svetoch.dev/v1alpha1
 kind: BucketAccess
 metadata:
   name: app-logs-writer-access
