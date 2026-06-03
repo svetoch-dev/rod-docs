@@ -1,8 +1,8 @@
-# Design details
+# Design Doc: Multi-Cloud Kubernetes Controller for Buckets, Cloud Principals, Principal Authentication, and Bucket Access
 
 ## 1. Overview
 
-This document describes the architecture for a Kubernetes controller/operator that manages object storage buckets, cloud IAM principals, and permissions between them across multiple cloud providers.
+This document describes the architecture for a Kubernetes controller/operator that manages object storage buckets, cloud IAM principals, authentication methods for those principals, and permissions between principals and buckets across multiple cloud providers.
 
 The system is based on Kubernetes Custom Resources and follows a reconciliation model:
 
@@ -13,7 +13,7 @@ Kubernetes Controllers
     ↓
 Cloud Provider APIs
     ↓
-Buckets / IAM Principals / IAM Bindings
+Buckets / IAM Principals / Auth Bindings / IAM Grants
     ↓
 CR Status
 ```
@@ -24,6 +24,7 @@ The main goals are:
 - Support multiple cloud providers.
 - Keep user-facing APIs mostly cloud-neutral.
 - Allow provider-specific configuration where needed.
+- Separate identity, authentication, and authorization concerns.
 - Avoid unsafe deletion behavior.
 - Make reconciliation idempotent and drift-aware.
 - Clearly report unsupported features and reconciliation status.
@@ -36,6 +37,7 @@ The controller should manage:
 
 - Object storage buckets.
 - Cloud IAM principals.
+- Authentication methods for cloud principals.
 - Access grants between principals and buckets.
 - Bucket attributes such as:
   - versioning
@@ -63,6 +65,7 @@ The controller should:
 - Default bucket deletion to `Retain`.
 - Avoid silently ignoring unsupported features.
 - Avoid exposing raw provider IAM details by default.
+- Prefer keyless workload identity over static credentials where possible.
 - Clearly distinguish between owned and referenced resources.
 - Store external IDs in status.
 
@@ -71,6 +74,8 @@ The controller should:
 This design does not aim to expose every provider-specific storage or IAM feature in the common API.
 
 It also does not aim to make all clouds behave identically. Provider-specific differences are expected and should be handled explicitly.
+
+This design does not require COSI as the primary API. COSI may be added later as an optional compatibility layer if needed.
 
 ## 4. High-Level Architecture
 
@@ -83,6 +88,9 @@ Bucket Controller
 CloudPrincipal Controller
     manages external cloud identities
 
+CloudPrincipalAuth Controller
+    manages authentication method for cloud identities
+
 BucketAccess Controller
     manages permissions between buckets and principals
 ```
@@ -90,13 +98,23 @@ BucketAccess Controller
 Relationship between resources:
 
 ```text
-Bucket CR ───────────────┐
-                         ↓
-                    BucketAccess CR
-                         ↓
-CloudPrincipal CR ───────┘
-                         ↓
-                  Cloud IAM binding / policy
+CloudPrincipal CR ───────┬───────────────┐
+                         ↓               ↓
+              CloudPrincipalAuth CR   BucketAccess CR
+                         ↓               ↓
+              Workload Identity /      IAM binding /
+              Static Credentials       bucket policy
+                                         ↑
+Bucket CR ──────────────────────────────┘
+```
+
+Conceptually:
+
+```text
+CloudPrincipal     = who exists in the cloud
+CloudPrincipalAuth = how a workload authenticates as that principal
+BucketAccess       = what that principal can do
+Bucket             = the object storage resource
 ```
 
 ## 5. Custom Resources
@@ -107,23 +125,25 @@ The recommended core CRDs are:
 ProviderConfig
 Bucket
 CloudPrincipal
+CloudPrincipalAuth
 BucketAccess
 ```
 
-Optionally, higher-level convenience CRDs can be added later, for example:
+Optional higher-level convenience CRDs can be added later, for example:
 
 ```text
 ApplicationBucket
 ApplicationStorageAccess
+ApplicationCloudIdentity
 ```
 
-These higher-level CRs can create lower-level `Bucket`, `CloudPrincipal`, and `BucketAccess` resources.
+These higher-level CRs can create lower-level `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, and `BucketAccess` resources.
 
 ## 6. ProviderConfig
 
 `ProviderConfig` describes the target cloud provider and the credentials/configuration required to manage resources there.
 
-Example:
+Example for GCP:
 
 ```yaml
 apiVersion: platform.example.com/v1alpha1
@@ -140,7 +160,7 @@ spec:
       namespace: platform-system
 ```
 
-AWS example:
+Example for AWS:
 
 ```yaml
 apiVersion: platform.example.com/v1alpha1
@@ -154,6 +174,24 @@ spec:
     region: eu-central-1
     credentialsSecretRef:
       name: aws-creds
+      namespace: platform-system
+```
+
+Example for Azure:
+
+```yaml
+apiVersion: platform.example.com/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: azure-dev
+spec:
+  type: Azure
+  azure:
+    subscriptionId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    resourceGroup: rg-platform-dev
+    location: westeurope
+    credentialsSecretRef:
+      name: azure-creds
       namespace: platform-system
 ```
 
@@ -283,6 +321,10 @@ The `CloudPrincipal` controller should:
 - Store external identity information in status.
 - Delete or retain the external identity according to `deletionPolicy`.
 
+The `CloudPrincipal` controller should not manage bucket permissions directly.
+
+The `CloudPrincipal` controller should not create workload identity bindings or static credentials directly. Those belong to `CloudPrincipalAuth`.
+
 ### 8.2 CloudPrincipal Status
 
 Example for GCP:
@@ -311,7 +353,171 @@ status:
       reason: Reconciled
 ```
 
-## 9. BucketAccess Resource
+## 9. CloudPrincipalAuth Resource
+
+`CloudPrincipalAuth` manages how a Kubernetes workload or consumer authenticates as a `CloudPrincipal`.
+
+It is intentionally separate from `CloudPrincipal` because authentication lifecycle is different from identity lifecycle.
+
+For example, a single cloud principal may have:
+
+- one workload identity binding for an application Kubernetes ServiceAccount
+- another workload identity binding for a job Kubernetes ServiceAccount
+- zero or more static credentials if static keys are unavoidable
+
+`CloudPrincipalAuth` supports both keyless authentication and static credentials under a single conceptual API.
+
+### 9.1 Recommended Authentication Methods
+
+Recommended initial methods:
+
+```text
+WorkloadIdentity
+StaticCredentials
+```
+
+Prefer `WorkloadIdentity` where possible.
+
+Static credentials should be treated as an escape hatch for systems that cannot use workload identity.
+
+### 9.2 Workload Identity Example
+
+```yaml
+apiVersion: platform.example.com/v1alpha1
+kind: CloudPrincipalAuth
+metadata:
+  name: app-logs-writer-workload-auth
+  namespace: my-app
+spec:
+  principalRef:
+    name: app-logs-writer
+
+  method: WorkloadIdentity
+
+  workloadIdentity:
+    kubernetesServiceAccountRef:
+      name: app
+      namespace: my-app
+```
+
+Provider mappings:
+
+```text
+GCP:
+  Kubernetes ServiceAccount can impersonate a GCP service account.
+
+AWS:
+  Kubernetes ServiceAccount can assume an IAM role through IRSA or Pod Identity.
+
+Azure:
+  Kubernetes ServiceAccount uses federated identity with a managed identity or application.
+
+Yandex:
+  Provider-specific federation or workload identity mechanism, if supported.
+```
+
+### 9.3 Static Credentials Example
+
+```yaml
+apiVersion: platform.example.com/v1alpha1
+kind: CloudPrincipalAuth
+metadata:
+  name: app-logs-writer-static-auth
+  namespace: my-app
+spec:
+  principalRef:
+    name: app-logs-writer
+
+  method: StaticCredentials
+
+  staticCredentials:
+    secretRef:
+      name: app-logs-writer-cloud-creds
+
+    rotation:
+      enabled: true
+      maxAgeDays: 90
+
+    deletionPolicy: Delete
+```
+
+The resulting Kubernetes Secret should contain provider-specific credential material.
+
+The exact Secret keys can be provider-specific, but should be documented and reflected in status.
+
+### 9.4 CloudPrincipalAuth Responsibilities
+
+The `CloudPrincipalAuth` controller should:
+
+- Resolve the referenced `CloudPrincipal`.
+- Wait until the referenced `CloudPrincipal` is ready.
+- Build a provider client from the referenced principal's `providerRef`.
+- Validate that the requested authentication method is supported by the provider.
+- Configure workload identity/federation bindings for `WorkloadIdentity`.
+- Create, rotate, and revoke static credentials for `StaticCredentials`.
+- Publish static credentials to a Kubernetes Secret or another configured secret backend.
+- Store auth binding or credential metadata in status.
+- Use finalizers to remove external auth bindings or revoke generated credentials.
+
+### 9.5 CloudPrincipalAuth Status
+
+Example for workload identity:
+
+```yaml
+status:
+  method: WorkloadIdentity
+  boundSubject:
+    kind: KubernetesServiceAccount
+    name: app
+    namespace: my-app
+
+  conditions:
+    - type: PrincipalReady
+      status: "True"
+
+    - type: Ready
+      status: "True"
+      reason: WorkloadIdentityBound
+      message: Workload identity binding is ready
+```
+
+Example for static credentials:
+
+```yaml
+status:
+  method: StaticCredentials
+
+  secretRef:
+    name: app-logs-writer-cloud-creds
+
+  credentialId: projects/my-project/serviceAccounts/app-logs-writer/keys/abc123
+  lastRotatedAt: "2026-06-03T10:00:00Z"
+  expiresAt: "2026-09-01T10:00:00Z"
+
+  conditions:
+    - type: PrincipalReady
+      status: "True"
+
+    - type: Ready
+      status: "True"
+      reason: StaticCredentialsCreated
+```
+
+### 9.6 Why CloudPrincipalAuth Should Be Separate
+
+This separation keeps the model clean:
+
+```text
+CloudPrincipal     = identity lifecycle
+CloudPrincipalAuth = authentication lifecycle
+BucketAccess       = authorization lifecycle
+```
+
+This avoids making `CloudPrincipal` responsible for credential rotation, Secret publishing, workload identity configuration, and auth binding deletion.
+
+It also allows multiple auth methods per principal without changing the principal itself.
+
+## 10. BucketAccess Resource
 
 `BucketAccess` manages the permission relationship between a bucket and a principal.
 
@@ -336,7 +542,7 @@ spec:
     level: ObjectWriter
 ```
 
-### 9.1 BucketAccess Responsibilities
+### 10.1 BucketAccess Responsibilities
 
 The `BucketAccess` controller should:
 
@@ -347,8 +553,9 @@ The `BucketAccess` controller should:
 - Grant the requested access.
 - Remove only the IAM binding/policy on deletion.
 - Never delete the bucket or principal.
+- Never manage authentication or credentials.
 
-### 9.2 Access Levels
+### 10.2 Access Levels
 
 Use portable access levels instead of raw provider IAM roles.
 
@@ -390,7 +597,7 @@ ObjectWriter:
 
 Raw provider roles should be avoided in the common API unless an advanced escape hatch is explicitly added.
 
-### 9.3 BucketAccess Status
+### 10.3 BucketAccess Status
 
 Example:
 
@@ -424,7 +631,7 @@ status:
       message: Referenced Bucket app-logs is not Ready
 ```
 
-## 10. Bucket Attributes and Multi-Cloud Differences
+## 11. Bucket Attributes and Multi-Cloud Differences
 
 Not all clouds support the same bucket features. The API should therefore be split into:
 
@@ -434,7 +641,7 @@ Not all clouds support the same bucket features. The API should therefore be spl
 3. Provider-specific configuration
 ```
 
-### 10.1 Common Portable Fields
+### 11.1 Common Portable Fields
 
 These fields should exist in the common `Bucket` spec because they are broadly useful across providers:
 
@@ -460,7 +667,7 @@ spec:
         action: Delete
 ```
 
-### 10.2 Platform-Level Abstractions
+### 11.2 Platform-Level Abstractions
 
 For semi-portable concepts, use platform-defined values rather than provider-native names.
 
@@ -480,7 +687,7 @@ Azure: Archive tier
 Yandex: provider-specific cold/archive equivalent
 ```
 
-### 10.3 Provider-Specific Configuration
+### 11.3 Provider-Specific Configuration
 
 Provider-specific fields should be namespaced under `spec.providerConfig`.
 
@@ -515,7 +722,7 @@ Reason: InvalidProviderConfig
 Message: providerConfig.aws is set but providerRef points to provider type GCP
 ```
 
-## 11. Unsupported Feature Policy
+## 12. Unsupported Feature Policy
 
 The controller should never silently ignore unsupported fields.
 
@@ -570,7 +777,7 @@ status:
       reason: UnsupportedFeature
 ```
 
-## 12. Provider Capabilities
+## 13. Provider Capabilities
 
 Each provider implementation should expose capabilities.
 
@@ -588,6 +795,29 @@ type BucketCapabilities struct {
 }
 ```
 
+Authentication capabilities should also be explicit:
+
+```go
+type AuthCapabilities struct {
+    WorkloadIdentity  bool
+    StaticCredentials bool
+    CredentialRotation bool
+}
+```
+
+Access capabilities should also be explicit:
+
+```go
+type AccessCapabilities struct {
+    ObjectReader bool
+    ObjectWriter bool
+    ObjectAdmin  bool
+    BucketAdmin  bool
+    PrefixScopedAccess bool
+    ConditionalAccess  bool
+}
+```
+
 The controller should validate requested features against provider capabilities before applying changes.
 
 Example behavior:
@@ -601,11 +831,22 @@ Reason=UnsupportedFeature
 Message=Provider does not support lifecycle transition rules
 ```
 
-## 13. Provider Interface
+Example auth behavior:
+
+```text
+User creates CloudPrincipalAuth with method WorkloadIdentity
+Provider does not support workload identity
+    ↓
+CloudPrincipalAuth Ready=False
+Reason=UnsupportedAuthMethod
+Message=Provider does not support WorkloadIdentity for this principal type
+```
+
+## 14. Provider Interface
 
 Use a common provider interface and provider-specific implementations.
 
-Example:
+Example bucket interface:
 
 ```go
 type BucketProvider interface {
@@ -615,7 +856,7 @@ type BucketProvider interface {
 }
 ```
 
-For principals:
+Principal interface:
 
 ```go
 type PrincipalProvider interface {
@@ -625,7 +866,21 @@ type PrincipalProvider interface {
 }
 ```
 
-For access:
+Authentication interface:
+
+```go
+type PrincipalAuthProvider interface {
+    ValidatePrincipalAuthSpec(spec CloudPrincipalAuthSpec) ValidationResult
+    EnsurePrincipalAuth(
+        ctx context.Context,
+        principal PrincipalState,
+        spec CloudPrincipalAuthSpec,
+    ) (*PrincipalAuthState, error)
+    DeletePrincipalAuth(ctx context.Context, status CloudPrincipalAuthStatus) error
+}
+```
+
+Bucket access interface:
 
 ```go
 type BucketAccessProvider interface {
@@ -668,7 +923,7 @@ func NewProvider(cfg ProviderConfig) (CloudProvider, error) {
 }
 ```
 
-## 14. Reconciliation Model
+## 15. Reconciliation Model
 
 All operations must be idempotent.
 
@@ -679,6 +934,7 @@ Good:
 ```text
 EnsureBucket
 EnsurePrincipal
+EnsurePrincipalAuth
 EnsureBucketAccess
 ```
 
@@ -687,6 +943,7 @@ Bad:
 ```text
 CreateBucket
 CreatePrincipal
+CreateCredentials
 CreateBucketAccess
 ```
 
@@ -699,7 +956,7 @@ Controllers must tolerate:
 - eventual consistency
 - manual drift
 
-## 15. Bucket Controller Flow
+## 16. Bucket Controller Flow
 
 ```text
 1. Fetch Bucket CR
@@ -752,7 +1009,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 ```
 
-## 16. CloudPrincipal Controller Flow
+## 17. CloudPrincipal Controller Flow
 
 ```text
 1. Fetch CloudPrincipal CR
@@ -768,7 +1025,30 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 9. Set Ready=True
 ```
 
-## 17. BucketAccess Controller Flow
+## 18. CloudPrincipalAuth Controller Flow
+
+```text
+1. Fetch CloudPrincipalAuth CR
+2. Resolve referenced CloudPrincipal
+3. Wait until CloudPrincipal is Ready
+4. Build provider client from CloudPrincipal.providerRef
+5. Validate requested auth method
+6. Add finalizer if missing
+7. If deleting:
+     - remove workload identity binding or revoke generated credentials
+     - optionally delete generated Secret depending on deletion policy
+     - remove finalizer
+8. Ensure auth method exists
+9. Publish or update Secret if method is StaticCredentials
+10. Update status
+11. Set Ready=True
+```
+
+For `WorkloadIdentity`, the controller configures the relevant trust/federation relationship.
+
+For `StaticCredentials`, the controller creates, rotates, and revokes credential material and writes it to the configured Secret target.
+
+## 19. BucketAccess Controller Flow
 
 ```text
 1. Fetch BucketAccess CR
@@ -787,7 +1067,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 12. Set Ready=True
 ```
 
-## 18. Watches
+## 20. Watches
 
 The `BucketAccess` controller should reconcile when any of these change:
 
@@ -801,7 +1081,18 @@ When a `Bucket` changes, enqueue all `BucketAccess` resources that reference it.
 
 When a `CloudPrincipal` changes, enqueue all `BucketAccess` resources that reference it.
 
-## 19. Finalizers and Deletion Policies
+The `CloudPrincipalAuth` controller should reconcile when any of these change:
+
+```text
+CloudPrincipalAuth
+CloudPrincipal
+Kubernetes ServiceAccount, if workload identity subject references it
+Secret, if static credential output is managed by the controller
+```
+
+When a `CloudPrincipal` changes, enqueue all `CloudPrincipalAuth` resources that reference it.
+
+## 21. Finalizers and Deletion Policies
 
 External cloud resources must be cleaned up explicitly.
 
@@ -810,10 +1101,11 @@ Recommended finalizers:
 ```text
 platform.example.com/bucket-finalizer
 platform.example.com/cloudprincipal-finalizer
+platform.example.com/cloudprincipalauth-finalizer
 platform.example.com/bucketaccess-finalizer
 ```
 
-### 19.1 Bucket Deletion Policy
+### 21.1 Bucket Deletion Policy
 
 Recommended values:
 
@@ -831,7 +1123,7 @@ Retain
 
 `DeleteWithContents` should be avoided unless absolutely required and protected by additional safeguards.
 
-### 19.2 CloudPrincipal Deletion Policy
+### 21.2 CloudPrincipal Deletion Policy
 
 Recommended values:
 
@@ -840,7 +1132,28 @@ Retain
 Delete
 ```
 
-### 19.3 BucketAccess Deletion
+### 21.3 CloudPrincipalAuth Deletion
+
+Deleting `CloudPrincipalAuth` should remove only the authentication mechanism it manages.
+
+For `WorkloadIdentity`, it should remove the workload identity binding/federation relationship.
+
+For `StaticCredentials`, it should revoke generated credentials. Secret deletion should be controlled by an explicit policy.
+
+Recommended static credential Secret deletion policy values:
+
+```text
+Retain
+Delete
+```
+
+Recommended default:
+
+```text
+Delete
+```
+
+### 21.4 BucketAccess Deletion
 
 Deleting `BucketAccess` should only remove the access grant.
 
@@ -848,8 +1161,10 @@ It should not delete:
 
 - the bucket
 - the principal
+- any auth binding
+- any generated credentials
 
-## 20. Ownership Model
+## 22. Ownership Model
 
 Use references between reusable resources.
 
@@ -858,6 +1173,7 @@ Do not make `BucketAccess` own `Bucket` or `CloudPrincipal`, because the relatio
 ```text
 One bucket can have many access grants.
 One principal can access many buckets.
+One principal can have multiple auth methods.
 ```
 
 Use `ownerReferences` only when a higher-level CR creates lower-level CRs.
@@ -868,10 +1184,11 @@ Example:
 ApplicationStorage
     owns Bucket
     owns CloudPrincipal
+    owns CloudPrincipalAuth
     owns BucketAccess
 ```
 
-## 21. Drift Handling
+## 23. Drift Handling
 
 The controller should detect and correct drift by default.
 
@@ -885,6 +1202,18 @@ Expected behavior:
 
 ```text
 BucketAccess controller restores the binding on next reconcile.
+```
+
+Example auth drift:
+
+```text
+Someone manually removes a workload identity binding.
+```
+
+Expected behavior:
+
+```text
+CloudPrincipalAuth controller restores the binding on next reconcile.
 ```
 
 Optional future field:
@@ -907,7 +1236,7 @@ Recommended default:
 Correct
 ```
 
-## 22. Naming
+## 24. Naming
 
 Do not blindly use Kubernetes `metadata.name` as the external cloud name.
 
@@ -919,6 +1248,7 @@ The controller should use a naming module:
 internal/naming/
   bucket.go
   principal.go
+  auth.go
 ```
 
 Recommended behavior:
@@ -937,7 +1267,7 @@ spec:
 
 The controller should validate or generate provider-safe names.
 
-## 23. Recommended Code Layout
+## 25. Recommended Code Layout
 
 ```text
 cmd/
@@ -949,11 +1279,13 @@ api/
     providerconfig_types.go
     bucket_types.go
     cloudprincipal_types.go
+    cloudprincipalauth_types.go
     bucketaccess_types.go
 
 controllers/
   bucket_controller.go
   cloudprincipal_controller.go
+  cloudprincipalauth_controller.go
   bucketaccess_controller.go
 
 internal/
@@ -965,29 +1297,34 @@ internal/
       provider.go
       buckets.go
       principals.go
+      auth.go
       access.go
 
     aws/
       provider.go
       buckets.go
       principals.go
+      auth.go
       access.go
 
     azure/
       provider.go
       buckets.go
       principals.go
+      auth.go
       access.go
 
     yandex/
       provider.go
       buckets.go
       principals.go
+      auth.go
       access.go
 
   naming/
     bucket.go
     principal.go
+    auth.go
 
   conditions/
     conditions.go
@@ -995,10 +1332,11 @@ internal/
   validation/
     bucket.go
     principal.go
+    auth.go
     access.go
 ```
 
-## 24. Kubernetes RBAC
+## 26. Kubernetes RBAC
 
 The controller needs permissions to:
 
@@ -1006,6 +1344,8 @@ The controller needs permissions to:
 - update status
 - update finalizers
 - read provider credential secrets
+- read Kubernetes ServiceAccounts referenced by `CloudPrincipalAuth`
+- create/update/delete Secrets for static credential output, if enabled
 - create/patch events
 
 Example:
@@ -1017,6 +1357,7 @@ rules:
       - providerconfigs
       - buckets
       - cloudprincipals
+      - cloudprincipalauths
       - bucketaccesses
     verbs: ["get", "list", "watch"]
 
@@ -1024,6 +1365,7 @@ rules:
     resources:
       - buckets
       - cloudprincipals
+      - cloudprincipalauths
       - bucketaccesses
     verbs: ["update", "patch"]
 
@@ -1031,25 +1373,35 @@ rules:
     resources:
       - buckets/status
       - cloudprincipals/status
+      - cloudprincipalauths/status
       - bucketaccesses/status
     verbs: ["update", "patch"]
 
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch"]
 
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
 ```
 
-## 25. Security Recommendations
+If static credentials are disabled, Secret write permissions can be removed or scoped down.
+
+## 27. Security Recommendations
 
 The controller should follow these rules:
 
 ```text
 Do not expose arbitrary IAM roles by default.
 Use predefined portable access levels.
+Prefer WorkloadIdentity over StaticCredentials.
+Make StaticCredentials opt-in.
+Support credential rotation if StaticCredentials are used.
 Use least-privilege credentials for the controller.
 Default bucket deletionPolicy to Retain.
 Use finalizers.
@@ -1059,7 +1411,39 @@ Never silently ignore unsupported fields.
 Use status conditions for all important states.
 ```
 
-## 26. Example End-to-End Flow
+For static credentials:
+
+```text
+Avoid static credentials unless required.
+Write generated credentials only to explicitly requested destinations.
+Never store credential material in CR status.
+Expose only credential IDs, timestamps, and Secret references in status.
+Support revocation on deletion.
+Support rotation.
+```
+
+## 28. COSI Integration
+
+COSI can be used as an optional compatibility layer, but it should not force the internal platform model to become weaker.
+
+Recommended approach:
+
+```text
+Platform CRDs remain canonical:
+  ProviderConfig
+  Bucket
+  CloudPrincipal
+  CloudPrincipalAuth
+  BucketAccess
+
+Optional COSI adapter:
+  COSI BucketClaim -> Bucket
+  COSI BucketAccess -> CloudPrincipalAuth / BucketAccess
+```
+
+Avoid creating one COSI driver per bucket. Drivers should represent provider/back-end implementations, not individual buckets.
+
+## 29. Example End-to-End Flow
 
 User creates a bucket:
 
@@ -1095,7 +1479,27 @@ spec:
   deletionPolicy: Delete
 ```
 
-User grants access:
+User creates authentication for the principal:
+
+```yaml
+apiVersion: platform.example.com/v1alpha1
+kind: CloudPrincipalAuth
+metadata:
+  name: app-logs-writer-auth
+  namespace: my-app
+spec:
+  principalRef:
+    name: app-logs-writer
+
+  method: WorkloadIdentity
+
+  workloadIdentity:
+    kubernetesServiceAccountRef:
+      name: app
+      namespace: my-app
+```
+
+User grants bucket access:
 
 ```yaml
 apiVersion: platform.example.com/v1alpha1
@@ -1123,14 +1527,17 @@ Bucket controller:
 CloudPrincipal controller:
   creates or updates external cloud principal
 
+CloudPrincipalAuth controller:
+  configures workload identity authentication for the principal
+
 BucketAccess controller:
-  waits for both resources
+  waits for bucket and principal
   validates provider match
   grants ObjectWriter access
   updates status
 ```
 
-## 27. Recommended Initial Version
+## 30. Recommended Initial Version
 
 For version 1, implement:
 
@@ -1138,6 +1545,7 @@ For version 1, implement:
 ProviderConfig
 Bucket
 CloudPrincipal
+CloudPrincipalAuth
 BucketAccess
 ```
 
@@ -1163,20 +1571,35 @@ ObjectAdmin
 BucketAdmin
 ```
 
+Support one preferred auth API:
+
+```text
+CloudPrincipalAuth.method = WorkloadIdentity
+```
+
+Add static credentials only if needed:
+
+```text
+CloudPrincipalAuth.method = StaticCredentials
+```
+
 Default safety choices:
 
 ```text
 Bucket deletionPolicy: Retain
 Unsupported feature policy: Fail
 Drift policy: Correct
+Authentication preference: WorkloadIdentity
+Static credentials: opt-in only
 ```
 
-## 28. Future Extensions
+## 31. Future Extensions
 
 Possible future additions:
 
 ```text
 Higher-level ApplicationStorage CR
+Higher-level ApplicationCloudIdentity CR
 Cross-cloud access support
 Advanced lifecycle transition rules
 Object lock / retention policies
@@ -1186,19 +1609,31 @@ Import/adoption workflows
 Admission webhooks
 Policy-as-code integration
 Provider capability discovery endpoint
+COSI compatibility adapter
+External Secrets integration
+Credential rotation controller
 ```
 
-## 29. Final Recommendation
+## 32. Final Recommendation
 
 Use separate CRs:
 
 ```text
 Bucket
 CloudPrincipal
+CloudPrincipalAuth
 BucketAccess
 ```
 
 Use a cloud-neutral API for common functionality, and provider-specific sections for features that are not portable.
+
+Keep identity, authentication, and authorization separate:
+
+```text
+CloudPrincipal     = identity
+CloudPrincipalAuth = authentication
+BucketAccess       = authorization
+```
 
 The most important design principles are:
 
@@ -1208,6 +1643,7 @@ Make reconciliation idempotent.
 Validate unsupported features explicitly.
 Do not silently ignore requested config.
 Default destructive behavior to safe choices.
+Prefer keyless auth over static credentials.
 Expose actual external state in status.
 Use provider interfaces internally.
 Keep the user-facing API intent-based.
