@@ -92,5 +92,8 @@ Applications then consume these resources natively via Kubernetes mechanisms (Se
 
 ## Decision log
 
-[Decision log](./DECISION_LOG.md)
+[moved to separate file](./DECISION_LOG.md)
 
+## Design Details
+
+[moved to separate file](./DESIGN.md)
