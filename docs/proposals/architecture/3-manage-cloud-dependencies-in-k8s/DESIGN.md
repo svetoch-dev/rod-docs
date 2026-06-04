@@ -396,6 +396,49 @@ spec:
     kubernetesServiceAccountRef:
       name: app
       namespace: my-app
+
+    serviceAccountMutationPolicy: ValidateOnly
+```
+
+`serviceAccountMutationPolicy` controls whether the controller only validates required Kubernetes ServiceAccount metadata or also patches it.
+
+Recommended values:
+
+```text
+ValidateOnly
+Patch
+```
+
+Recommended default:
+
+```text
+ValidateOnly
+```
+
+Behavior:
+
+```text
+ValidateOnly:
+  Check that the referenced Kubernetes ServiceAccount has the required provider-specific annotations.
+  If required annotations are missing, mark CloudPrincipalAuth Ready=False and do not mutate the ServiceAccount.
+
+Patch:
+  Patch the referenced Kubernetes ServiceAccount with the required provider-specific annotations.
+  This mode should be used only when the platform team explicitly wants this controller to manage ServiceAccount metadata.
+```
+
+For GCP Workload Identity, the controller should require or apply the Kubernetes ServiceAccount annotation that points to the target GCP service account.
+
+Example Kubernetes ServiceAccount metadata for GCP:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app
+  namespace: my-app
+  annotations:
+    iam.gke.io/gcp-service-account: app-logs-writer@my-project.iam.gserviceaccount.com
 ```
 
 Provider mappings:
@@ -448,6 +491,9 @@ The `CloudPrincipalAuth` controller should:
 - Wait until the referenced `CloudPrincipal` is ready.
 - Build a provider client from the referenced principal's `providerRef`.
 - Validate that the requested authentication method is supported by the provider.
+- Resolve and validate the referenced Kubernetes ServiceAccount for `WorkloadIdentity`.
+- Compute required provider-specific Kubernetes ServiceAccount annotations for `WorkloadIdentity`.
+- Patch required Kubernetes ServiceAccount annotations only when `serviceAccountMutationPolicy: Patch` is set.
 - Configure workload identity/federation bindings for `WorkloadIdentity`.
 - Create, rotate, and revoke static credentials for `StaticCredentials`.
 - Publish static credentials to a Kubernetes Secret or another configured secret backend.
@@ -466,14 +512,54 @@ status:
     name: app
     namespace: my-app
 
+  requiredServiceAccountMetadata:
+    annotations:
+      iam.gke.io/gcp-service-account: app-logs-writer@my-project.iam.gserviceaccount.com
+
+  serviceAccountMutationPolicy: ValidateOnly
+
   conditions:
     - type: PrincipalReady
       status: "True"
+
+    - type: ServiceAccountConfigured
+      status: "True"
+      reason: RequiredAnnotationsPresent
 
     - type: Ready
       status: "True"
       reason: WorkloadIdentityBound
       message: Workload identity binding is ready
+```
+
+Example status when the referenced Kubernetes ServiceAccount is missing required annotations and mutation is not enabled:
+
+```yaml
+status:
+  method: WorkloadIdentity
+  boundSubject:
+    kind: KubernetesServiceAccount
+    name: app
+    namespace: my-app
+
+  requiredServiceAccountMetadata:
+    annotations:
+      iam.gke.io/gcp-service-account: app-logs-writer@my-project.iam.gserviceaccount.com
+
+  serviceAccountMutationPolicy: ValidateOnly
+
+  conditions:
+    - type: PrincipalReady
+      status: "True"
+
+    - type: ServiceAccountConfigured
+      status: "False"
+      reason: MissingRequiredAnnotation
+      message: Kubernetes ServiceAccount my-app/app is missing annotation iam.gke.io/gcp-service-account
+
+    - type: Ready
+      status: "False"
+      reason: KubernetesServiceAccountNotConfigured
 ```
 
 Example for static credentials:
@@ -1026,13 +1112,18 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
      - remove workload identity binding or revoke generated credentials
      - optionally delete generated Secret depending on deletion policy
      - remove finalizer
-8. Ensure auth method exists
-9. Publish or update Secret if method is StaticCredentials
-10. Update status
-11. Set Ready=True
+8. For WorkloadIdentity:
+     - fetch the referenced Kubernetes ServiceAccount
+     - compute required provider-specific ServiceAccount annotations
+     - if annotations are missing and serviceAccountMutationPolicy is ValidateOnly, set Ready=False
+     - if annotations are missing and serviceAccountMutationPolicy is Patch, patch the ServiceAccount
+9. Ensure auth method exists
+10. Publish or update Secret if method is StaticCredentials
+11. Update status
+12. Set Ready=True
 ```
 
-For `WorkloadIdentity`, the controller configures the relevant trust/federation relationship.
+For `WorkloadIdentity`, the controller configures the relevant trust/federation relationship and validates or patches required Kubernetes ServiceAccount annotations.
 
 For `StaticCredentials`, the controller creates, rotates, and revokes credential material and writes it to the configured Secret target.
 
@@ -1259,8 +1350,7 @@ The controller should validate or generate provider-safe names.
 
 ```text
 cmd/
-  manager/
-    main.go
+  main.go
 
 api/
   v1alpha1/
@@ -1270,13 +1360,14 @@ api/
     cloudprincipalauth_types.go
     bucketaccess_types.go
 
-controllers/
-  bucket_controller.go
-  cloudprincipal_controller.go
-  cloudprincipalauth_controller.go
-  bucketaccess_controller.go
-
 internal/
+  controllers/
+    bucket_controller.go
+    cloudprincipal_controller.go
+    cloudprincipalauth_controller.go
+    bucketaccess_controller.go
+
+
   cloud/
     provider.go
     registry.go
@@ -1326,6 +1417,7 @@ The controller needs permissions to:
 - update finalizers
 - read provider credential secrets
 - read Kubernetes ServiceAccounts referenced by `CloudPrincipalAuth`
+- patch Kubernetes ServiceAccounts only if `serviceAccountMutationPolicy: Patch` is supported and enabled
 - create/update/delete Secrets for static credential output, if enabled
 - create/patch events
 
@@ -1366,12 +1458,19 @@ rules:
     resources: ["serviceaccounts"]
     verbs: ["get", "list", "watch"]
 
+  # Required only if CloudPrincipalAuth supports serviceAccountMutationPolicy: Patch.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["patch"]
+
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
 ```
 
 If static credentials are disabled, Secret write permissions can be removed or scoped down.
+
+If `serviceAccountMutationPolicy: Patch` is not supported, or if the platform only wants validation, ServiceAccount patch permissions should be omitted.
 
 ## 27. Security Recommendations
 
