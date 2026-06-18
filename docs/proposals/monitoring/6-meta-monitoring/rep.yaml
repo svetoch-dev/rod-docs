@@ -1,0 +1,15 @@
+title: Meta monitoring
+rep-number: 6
+authors:
+  - "@ggramal"
+component: monitoring
+status:
+  name: implementable
+  emoji: 🟢
+creation-date: 18.06.2026
+reviewers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
+approvers:
+  - "@dmitry231187"
+  - "@CyberCuCuber"
