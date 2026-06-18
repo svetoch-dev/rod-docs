@@ -151,12 +151,12 @@ metadata:
   name: gcp-dev
 spec:
   type: GCP
-  gcp:
-    projectId: my-gcp-project
-    location: europe-west1
-    credentialsSecretRef:
-      name: gcp-creds
-      namespace: platform-system
+  projectId: "dexfinance-internal"
+  region: europe-west2
+  method: StaticCredentials
+  credentialsSecretRef:
+    name: gcp-creds
+    namespace: vedro-system
 ```
 
 Example for AWS:
@@ -168,12 +168,11 @@ metadata:
   name: aws-dev
 spec:
   type: AWS
-  aws:
-    accountId: "123456789012"
-    region: eu-central-1
-    credentialsSecretRef:
-      name: aws-creds
-      namespace: platform-system
+  projectId: "123456789012"
+  method: StaticCredentials
+  credentialsSecretRef:
+    name: aws-creds
+    namespace: platform-system
 ```
 
 Example for Yandex Cloud:
@@ -185,13 +184,9 @@ metadata:
   name: yc-dev
 spec:
   type: Yandex
-  yandex:
-    cloudId: b1g-example-cloud-id
-    folderId: b1g-example-folder-id
-    region: ru-central1
-    credentialsSecretRef:
-      name: yc-creds
-      namespace: platform-system
+  projectId: b1g-example-folder-id
+  region: ru-central1
+  method: WorkloadIdentity
 ```
 
 The controller should not require cloud credentials inside every resource. Resources should reference a `ProviderConfig`.
@@ -1693,40 +1688,3 @@ COSI compatibility adapter
 External Secrets integration
 Credential rotation controller
 ```
-
-## 32. Final Recommendation
-
-Use separate CRs:
-
-```text
-Bucket
-CloudPrincipal
-CloudPrincipalAuth
-BucketAccess
-```
-
-Use a cloud-neutral API for common functionality, and provider-specific sections for features that are not portable.
-
-Keep identity, authentication, and authorization separate:
-
-```text
-CloudPrincipal     = identity
-CloudPrincipalAuth = authentication
-BucketAccess       = authorization
-```
-
-The most important design principles are:
-
-```text
-Keep ownership boundaries clear.
-Make reconciliation idempotent.
-Validate unsupported features explicitly.
-Do not silently ignore requested config.
-Default destructive behavior to safe choices.
-Prefer keyless auth over static credentials.
-Expose actual external state in status.
-Use provider interfaces internally.
-Keep the user-facing API intent-based.
-```
-
-This design gives a clean Kubernetes-native API while still allowing each cloud provider to behave correctly behind the scenes.
