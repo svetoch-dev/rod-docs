@@ -170,6 +170,7 @@ spec:
   type: AWS
   projectId: "123456789012"
   method: StaticCredentials
+  region: us-east-1
   credentialsSecretRef:
     name: aws-creds
     namespace: platform-system
