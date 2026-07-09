@@ -248,12 +248,6 @@ allowedNamesapces:
 
 `principalPolicy.allowExisting` controls whether the controller may reconcile an already-existing external cloud principal that was not created by this Kubernetes resource.
 
-Recommended tenant-facing behavior:
-
-```text
-allowExisting: false
-```
-
 With `allowExisting: false`, the controller should not adopt arbitrary existing buckets or cloud principals. If the external resource already exists and is not already owned by the same Kubernetes resource, reconciliation should fail.
 
 Recommended infrastructure behavior:
@@ -264,7 +258,86 @@ allowExisting: true or omitted depending on implementation default
 
 Infrastructure provider configs may intentionally allow reconciliation of existing resources, but they should be restricted to platform namespaces and platform users.
 
-Name pattern semantics:
+### 6.2 Ownership Metadata for `allowExisting: false`
+
+When `allowExisting: false` is configured, the controller must distinguish between resources it created and arbitrary pre-existing cloud resources with the same name. This should be enforced by writing controller-owned ownership metadata to external buckets and cloud principals when they are created.
+
+For tenant-facing providers, `allowExisting: false` should have the following reconciliation behavior:
+
+```text
+External resource does not exist:
+  Create it.
+  Write ownership metadata.
+  Reconcile it.
+
+External resource exists and ownership metadata matches this Kubernetes resource:
+  Reconcile it.
+
+External resource exists and ownership metadata is missing:
+  Fail reconciliation.
+  Reason: ExternalResourceAlreadyExists
+
+External resource exists and ownership metadata points to another Kubernetes resource:
+  Fail reconciliation.
+  Reason: ExternalResourceOwnedByAnotherResource
+```
+
+Recommended ownership metadata for external buckets:
+
+```text
+vedro.svetoch.dev/managed = true
+vedro.svetoch.dev/kind = Bucket
+vedro.svetoch.dev/namespace = <bucket namespace>
+vedro.svetoch.dev/name = <bucket name>
+vedro.svetoch.dev/uid = <bucket metadata.uid>
+vedro.svetoch.dev/provider-config = <provider config name>
+```
+
+Recommended ownership metadata for external cloud principals:
+
+```text
+vedro.svetoch.dev/managed = true
+vedro.svetoch.dev/kind = CloudPrincipal
+vedro.svetoch.dev/namespace = <cloudprincipal namespace>
+vedro.svetoch.dev/name = <cloudprincipal name>
+vedro.svetoch.dev/uid = <cloudprincipal metadata.uid>
+vedro.svetoch.dev/provider-config = <provider config name>
+```
+
+The `vedro.svetoch.dev/uid` value is the most important ownership value. Namespace and name are useful for debugging, but they are not sufficient as a stable ownership identity because Kubernetes resources can be deleted and recreated with the same namespace and name. The Kubernetes object UID is assigned by the API server and changes when the resource is recreated.
+
+Provider-specific storage for ownership metadata may differ:
+
+```text
+GCP buckets:
+  Use bucket labels for ownership metadata.
+
+GCP service accounts:
+  Use labels if supported by the chosen API path.
+  Otherwise, store compact ownership metadata in the service account description.
+
+AWS buckets, IAM roles, and IAM users:
+  Use tags where supported.
+
+Yandex Cloud buckets and service accounts:
+  Use labels or provider-supported metadata fields where available.
+```
+
+Example compact description for a cloud principal when labels are not available:
+
+```json
+{"managedBy":"vedro","kind":"CloudPrincipal","namespace":"my-app","name":"app-logs-writer","uid":"7f2c...","providerConfig":"gcp-dev-apps"}
+```
+
+The controller should own the reserved metadata prefix. Users must not be allowed to set or override reserved ownership metadata through resource specs such as bucket labels, bucket tags, cloud principal labels, or provider-specific configuration. Admission should reject user-provided labels or tags that use reserved prefixes, for example:
+
+```text
+vedro.svetoch.dev/*
+```
+
+Ownership metadata is useful for preventing accidental adoption and for detecting whether an external resource is managed by the controller. It is not a complete security boundary if users also have direct cloud permissions to edit labels, tags, descriptions, IAM policies, or service account metadata on sensitive resources. Therefore, the full security model must also rely on Kubernetes admission, Kubernetes RBAC, and cloud-side IAM restrictions.
+
+### 6.3 Name pattern semantics
 
 ```text
 A bucket or principal name is allowed if it matches at least one configured pattern.
@@ -272,7 +345,7 @@ A bucket or principal name is denied if it matches none of the configured patter
 An empty or missing pattern list should be treated as deny-all.
 ```
 
-Example tenant-facing provider:
+Example1:
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -300,7 +373,7 @@ spec:
         - vedro-.*
 ```
 
-Example infrastructure provider:
+Example2:
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -1659,6 +1732,10 @@ ProviderConfig.usagePolicy.principalPolicy must restrict which cloud principal n
 Permissive infrastructure ProviderConfigs should be protected with Kubernetes RBAC and admission policy.
 Admission webhooks should reject resources that violate usagePolicy before reconciliation.
 The controller should re-check usagePolicy before making cloud API calls.
+For providers with allowExisting=false, the controller should create and verify ownership metadata before reconciling external buckets or principals.
+Users should not be able to provide labels, tags, descriptions, or provider-specific metadata using reserved ownership prefixes such as vedro.svetoch.dev/*.
+Ownership metadata helps prevent accidental adoption, but it must not be the only security boundary if users have direct cloud-side permissions to edit metadata on sensitive resources.
+Cloud IAM should prevent ordinary users from modifying labels, tags, descriptions, IAM policies, or credentials for protected buckets and principals.
 ```
 
 For static credentials:
@@ -1841,9 +1918,6 @@ Unsupported feature policy: Fail
 Drift policy: Correct
 Authentication preference: WorkloadIdentity
 Static credentials: opt-in only
-ProviderConfig usagePolicy: required for tenant-facing providers
-Tenant-facing ProviderConfigs: restrictive namespace and name patterns
-Infrastructure ProviderConfigs: platform-only
 ```
 
 ## 31. Future Extensions
