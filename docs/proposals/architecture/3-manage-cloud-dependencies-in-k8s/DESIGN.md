@@ -192,6 +192,169 @@ spec:
 
 The controller should not require cloud credentials inside every resource. Resources should reference a `ProviderConfig`.
 
+
+### 6.1 Provider Usage Policy
+
+`ProviderConfig` also defines a provider-level `usagePolicy`. This policy limits which Kubernetes namespaces may use the provider and which external bucket and principal names may be reconciled through it.
+
+This is required because a user who can create `Bucket`, `CloudPrincipal`, or `CloudPrincipalAuth` resources could otherwise point those resources at sensitive existing buckets or high-privilege cloud principals. `usagePolicy` provides a coarse safety boundary before provider-specific reconciliation is attempted.
+
+Initial policy fields:
+
+```yaml
+spec:
+  usagePolicy:
+    allowedNamesapces:
+      names:
+        - namespace1
+        - namespace2
+
+    bucketPolicy:
+      allowExisting: false
+      allowedNamePatterns:
+        - vedro-.*
+
+    principalPolicy:
+      allowExisting: false
+      allowedNamePatterns:
+        - vedro-.*
+```
+
+`allowedNamesapces` defines which Kubernetes namespaces are allowed to reference this `ProviderConfig` from `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, or `BucketAccess` resources.
+
+Supported namespace policy forms:
+
+```yaml
+allowedNamesapces:
+  names:
+    - namespace1
+    - namespace2
+```
+
+```yaml
+allowedNamesapces:
+  all: true
+```
+
+`allowedNamesapces.names` allows only the listed namespaces to use the provider.
+
+`allowedNamesapces.all: true` allows resources in any namespace to reference the provider. This should be used only for infrastructure or platform provider configs, and ordinary application users should not be allowed to reference such provider configs unless that is explicitly intended.
+
+`bucketPolicy.allowedNamePatterns` defines the list of allowed external bucket name patterns for buckets reconciled through this provider.
+
+`principalPolicy.allowedNamePatterns` defines the list of allowed external cloud principal name patterns for cloud principals reconciled through this provider.
+
+`bucketPolicy.allowExisting` controls whether the controller may reconcile an already-existing external bucket that was not created by this Kubernetes resource.
+
+`principalPolicy.allowExisting` controls whether the controller may reconcile an already-existing external cloud principal that was not created by this Kubernetes resource.
+
+Recommended tenant-facing behavior:
+
+```text
+allowExisting: false
+```
+
+With `allowExisting: false`, the controller should not adopt arbitrary existing buckets or cloud principals. If the external resource already exists and is not already owned by the same Kubernetes resource, reconciliation should fail.
+
+Recommended infrastructure behavior:
+
+```text
+allowExisting: true or omitted depending on implementation default
+```
+
+Infrastructure provider configs may intentionally allow reconciliation of existing resources, but they should be restricted to platform namespaces and platform users.
+
+Name pattern semantics:
+
+```text
+A bucket or principal name is allowed if it matches at least one configured pattern.
+A bucket or principal name is denied if it matches none of the configured patterns.
+An empty or missing pattern list should be treated as deny-all.
+```
+
+Example tenant-facing provider:
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: gcp-dev-apps
+spec:
+  type: GCP
+  projectId: dexfinance-internal
+
+  usagePolicy:
+    allowedNamesapces:
+      names:
+        - namespace1
+        - namespace2
+
+    bucketPolicy:
+      allowExisting: false
+      allowedNamePatterns:
+        - vedro-.*
+
+    principalPolicy:
+      allowExisting: false
+      allowedNamePatterns:
+        - vedro-.*
+```
+
+Example infrastructure provider:
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: gcp-dev-infra
+spec:
+  type: GCP
+  projectId: dexfinance-internal
+
+  usagePolicy:
+    allowedNamesapces:
+      all: true
+
+    bucketPolicy:
+      allowedNamePatterns:
+        - .*
+
+    principalPolicy:
+      allowedNamePatterns:
+        - .*
+```
+
+The `gcp-dev-apps` provider is intended for application namespaces and restricts bucket and principal names to the `vedro-*` naming scheme. It also sets `allowExisting: false`, so application users cannot point the controller at arbitrary existing buckets or cloud principals.
+
+The `gcp-dev-infra` provider is intentionally permissive and should be treated as platform or infrastructure-only. Because it allows all namespaces and all bucket/principal names, Kubernetes RBAC and admission policy should prevent ordinary application users from referencing it unless that is explicitly intended.
+
+The controller should enforce `usagePolicy` during reconciliation. A validating admission webhook should also enforce the same policy when resources are created or updated, so unsafe resources are rejected before they are persisted.
+
+Example validation behavior:
+
+```text
+User creates Bucket in namespace namespace1 with providerRef gcp-dev-apps and name vedro-logs
+    ↓
+Allowed, because namespace1 is listed in allowedNamesapces.names and vedro-logs matches vedro-.*
+
+User creates Bucket in namespace namespace3 with providerRef gcp-dev-apps
+    ↓
+Denied, because namespace3 is not listed in allowedNamesapces.names
+
+User creates CloudPrincipal in namespace namespace1 with providerRef gcp-dev-apps and name admin-service-account
+    ↓
+Denied, because admin-service-account does not match vedro-.*
+
+User creates Bucket in namespace namespace1 with providerRef gcp-dev-apps and name vedro-existing-prod
+External bucket vedro-existing-prod already exists but is not owned by the same Bucket resource
+    ↓
+Denied or reconciled as Ready=False, because bucketPolicy.allowExisting is false
+
+User creates Bucket with providerRef gcp-dev-infra
+    ↓
+Allowed only if the requester is authorized to use the infrastructure provider
+```
+
 ## 7. Bucket Resource
 
 `Bucket` owns the lifecycle of an external object storage bucket.
@@ -1487,6 +1650,17 @@ Never silently ignore unsupported fields.
 Use status conditions for all important states.
 ```
 
+Usage policy should be enforced consistently:
+
+```text
+ProviderConfig.usagePolicy must restrict which namespaces can use a provider.
+ProviderConfig.usagePolicy.bucketPolicy must restrict which bucket names can be reconciled.
+ProviderConfig.usagePolicy.principalPolicy must restrict which cloud principal names can be reconciled.
+Permissive infrastructure ProviderConfigs should be protected with Kubernetes RBAC and admission policy.
+Admission webhooks should reject resources that violate usagePolicy before reconciliation.
+The controller should re-check usagePolicy before making cloud API calls.
+```
+
 For static credentials:
 
 ```text
@@ -1667,6 +1841,9 @@ Unsupported feature policy: Fail
 Drift policy: Correct
 Authentication preference: WorkloadIdentity
 Static credentials: opt-in only
+ProviderConfig usagePolicy: required for tenant-facing providers
+Tenant-facing ProviderConfigs: restrictive namespace and name patterns
+Infrastructure ProviderConfigs: platform-only
 ```
 
 ## 31. Future Extensions
