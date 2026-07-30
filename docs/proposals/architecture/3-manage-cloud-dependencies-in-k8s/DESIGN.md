@@ -204,7 +204,7 @@ Initial policy fields:
 ```yaml
 spec:
   usagePolicy:
-    allowedNamesapces:
+    allowedNamespaces:
       names:
         - namespace1
         - namespace2
@@ -220,25 +220,25 @@ spec:
         - vedro-.*
 ```
 
-`allowedNamesapces` defines which Kubernetes namespaces are allowed to reference this `ProviderConfig` from `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, or `BucketAccess` resources.
+`allowedNamespaces` defines which Kubernetes namespaces are allowed to reference this `ProviderConfig` from `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, or `BucketAccess` resources.
 
 Supported namespace policy forms:
 
 ```yaml
-allowedNamesapces:
+allowedNamespaces:
   names:
     - namespace1
     - namespace2
 ```
 
 ```yaml
-allowedNamesapces:
+allowedNamespaces:
   all: true
 ```
 
-`allowedNamesapces.names` allows only the listed namespaces to use the provider.
+`allowedNamespaces.names` allows only the listed namespaces to use the provider.
 
-`allowedNamesapces.all: true` allows resources in any namespace to reference the provider. This should be used only for infrastructure or platform provider configs, and ordinary application users should not be allowed to reference such provider configs unless that is explicitly intended.
+`allowedNamespaces.all: true` allows resources in any namespace to reference the provider. This should be used only for infrastructure or platform provider configs, and ordinary application users should not be allowed to reference such provider configs unless that is explicitly intended.
 
 `bucketPolicy.allowedNamePatterns` defines the list of allowed external bucket name patterns for buckets reconciled through this provider.
 
@@ -354,10 +354,10 @@ metadata:
   name: gcp-dev-apps
 spec:
   type: GCP
-  projectId: dexfinance-internal
+  projectId: my-awesome-project
 
   usagePolicy:
-    allowedNamesapces:
+    allowedNamespaces:
       names:
         - namespace1
         - namespace2
@@ -382,10 +382,10 @@ metadata:
   name: gcp-dev-infra
 spec:
   type: GCP
-  projectId: dexfinance-internal
+  projectId: my-awesome-project
 
   usagePolicy:
-    allowedNamesapces:
+    allowedNamespaces:
       all: true
 
     bucketPolicy:
@@ -408,11 +408,11 @@ Example validation behavior:
 ```text
 User creates Bucket in namespace namespace1 with providerRef gcp-dev-apps and name vedro-logs
     ↓
-Allowed, because namespace1 is listed in allowedNamesapces.names and vedro-logs matches vedro-.*
+Allowed, because namespace1 is listed in allowedNamespaces.names and vedro-logs matches vedro-.*
 
 User creates Bucket in namespace namespace3 with providerRef gcp-dev-apps
     ↓
-Denied, because namespace3 is not listed in allowedNamesapces.names
+Denied, because namespace3 is not listed in allowedNamespaces.names
 
 User creates CloudPrincipal in namespace namespace1 with providerRef gcp-dev-apps and name admin-service-account
     ↓
