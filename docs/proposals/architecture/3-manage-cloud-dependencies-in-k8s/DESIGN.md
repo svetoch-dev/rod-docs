@@ -653,7 +653,6 @@ spec:
 
   reference:
     externalId: alice@example.com
-    verificationPolicy: BestEffort
 ```
 
 ### 8.3 Referenced Group Example
@@ -673,30 +672,7 @@ spec:
 
   reference:
     externalId: developers@example.com
-    verificationPolicy: BestEffort
 ```
-
-Recommended verification policies:
-
-```text
-Required:
-  The provider must verify that the external principal exists.
-
-BestEffort:
-  Verify when the provider API and controller credentials support it.
-  Otherwise accept the identifier after syntax and usage-policy validation.
-
-None:
-  Treat the identifier as opaque after local validation.
-```
-
-Recommended default for human users and groups:
-
-```text
-BestEffort
-```
-
-Directory-level lookup permissions should not be required merely to grant bucket access when the cloud IAM API accepts a stable principal identifier directly.
 
 ### 8.4 CloudPrincipal Spec Shape
 
@@ -733,8 +709,7 @@ type ManagedPrincipalSpec struct {
 }
 
 type ReferencedPrincipalSpec struct {
-    ExternalID        string             `json:"externalId"`
-    VerificationPolicy VerificationPolicy `json:"verificationPolicy,omitempty"`
+    ExternalID string `json:"externalId"`
 }
 ```
 
@@ -1145,26 +1120,24 @@ Recommended sequence:
 
 Granting the new role first avoids a temporary loss of access.
 
-Status should record the applied provider role and principal identifier:
+Status should record the granted portable access level and principal identifier:
 
 ```yaml
 status:
   applied:
     principalKind: User
     providerPrincipalId: user:alice@example.com
-    providerRole: roles/storage.objectViewer
+    grantedAccess: ObjectReader
 ```
 
 ### 10.4 BucketAccess Status
 
 ```yaml
 status:
-  bindingId: bucket/reports:user/alice@example.com:ObjectReader
-
   applied:
     principalKind: User
     providerPrincipalId: user:alice@example.com
-    providerRole: roles/storage.objectViewer
+    grantedAccess: ObjectReader
 
   conditions:
     - type: BucketReady
@@ -1404,16 +1377,15 @@ Message: AWS IAM groups cannot be used as principals in S3 bucket policies
 
 ## 14. Provider Interface
 
-Use common provider interfaces and provider-specific implementations.
+Use a common provider interface and provider-specific implementations.
+
+Example bucket interface:
 
 ```go
-type PrincipalState struct {
-    Kind                PrincipalKind
-    ManagementPolicy    PrincipalManagementPolicy
-    ExternalName        string
-    ExternalID          string
-    ProviderPrincipalID string
-    Provider            ProviderType
+type BucketProvider interface {
+    ValidateBucketSpec(spec BucketSpec) ValidationResult
+    EnsureBucket(ctx context.Context, spec BucketSpec) (*BucketState, error)
+    DeleteBucket(ctx context.Context, status BucketStatus) error
 }
 ```
 
@@ -1422,21 +1394,8 @@ Principal interface:
 ```go
 type PrincipalProvider interface {
     ValidatePrincipalSpec(spec CloudPrincipalSpec) ValidationResult
-
-    EnsureManagedPrincipal(
-        ctx context.Context,
-        spec CloudPrincipalSpec,
-    ) (*PrincipalState, error)
-
-    ResolveReferencedPrincipal(
-        ctx context.Context,
-        spec CloudPrincipalSpec,
-    ) (*PrincipalState, error)
-
-    DeleteManagedPrincipal(
-        ctx context.Context,
-        status CloudPrincipalStatus,
-    ) error
+    EnsurePrincipal(ctx context.Context, spec CloudPrincipalSpec) (*PrincipalState, error)
+    DeletePrincipal(ctx context.Context, status CloudPrincipalStatus) error
 }
 ```
 
@@ -1444,21 +1403,13 @@ Authentication interface:
 
 ```go
 type PrincipalAuthProvider interface {
-    ValidatePrincipalAuthSpec(
-        principal PrincipalState,
-        spec CloudPrincipalAuthSpec,
-    ) ValidationResult
-
+    ValidatePrincipalAuthSpec(spec CloudPrincipalAuthSpec) ValidationResult
     EnsurePrincipalAuth(
         ctx context.Context,
         principal PrincipalState,
         spec CloudPrincipalAuthSpec,
     ) (*PrincipalAuthState, error)
-
-    DeletePrincipalAuth(
-        ctx context.Context,
-        status CloudPrincipalAuthStatus,
-    ) error
+    DeletePrincipalAuth(ctx context.Context, status CloudPrincipalAuthStatus) error
 }
 ```
 
@@ -1466,24 +1417,14 @@ Bucket access interface:
 
 ```go
 type BucketAccessProvider interface {
-    ValidateBucketAccessSpec(
-        principal PrincipalState,
-        spec BucketAccessSpec,
-    ) ValidationResult
-
+    ValidateBucketAccessSpec(spec BucketAccessSpec) ValidationResult
     EnsureBucketAccess(
         ctx context.Context,
         bucket BucketState,
         principal PrincipalState,
         access AccessSpec,
     ) (*AccessState, error)
-
-    RevokeBucketAccess(
-        ctx context.Context,
-        bucket BucketState,
-        principal PrincipalState,
-        applied AppliedAccessState,
-    ) error
+    DeleteBucketAccess(ctx context.Context, status BucketAccessStatus) error
 }
 ```
 
@@ -1501,6 +1442,23 @@ Provider implementations:
 internal/cloud/gcp
 internal/cloud/aws
 internal/cloud/yandex
+```
+
+Provider registry:
+
+```go
+func NewProvider(cfg ProviderConfig) (CloudProvider, error) {
+    switch cfg.Spec.Type {
+    case "GCP":
+        return gcp.New(cfg)
+    case "AWS":
+        return aws.New(cfg)
+    case "Yandex":
+        return yandex.New(cfg)
+    default:
+        return nil, fmt.Errorf("unsupported provider type %q", cfg.Spec.Type)
+    }
+}
 ```
 
 ## 15. Reconciliation Model
@@ -1605,7 +1563,7 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
      - verify ownership metadata
 8. If managementPolicy=Reference:
      - validate the external identifier
-     - resolve or verify it according to verificationPolicy
+     - resolve or validate the provider-native principal identifier
      - never take ownership
 9. Normalize providerPrincipalId.
 10. Update status.
@@ -2122,7 +2080,6 @@ spec:
   managementPolicy: Reference
   reference:
     externalId: alice@example.com
-    verificationPolicy: BestEffort
 ```
 
 ```yaml
@@ -2157,7 +2114,6 @@ spec:
   managementPolicy: Reference
   reference:
     externalId: aje-example-group-id
-    verificationPolicy: BestEffort
 ```
 
 ```yaml
