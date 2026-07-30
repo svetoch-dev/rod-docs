@@ -36,8 +36,8 @@ The main goals are:
 The controller should manage:
 
 - Object storage buckets.
-- Cloud IAM principals.
-- Authentication methods for cloud principals.
+- Managed and referenced cloud IAM principals, including workload identities, users, and groups.
+- Authentication methods for supported workload principals.
 - Access grants between principals and buckets.
 - Bucket attributes such as:
   - versioning
@@ -85,10 +85,10 @@ Bucket Controller
     manages external buckets
 
 CloudPrincipal Controller
-    manages external cloud identities
+    manages or resolves cloud IAM authorization subjects
 
 CloudPrincipalAuth Controller
-    manages authentication method for cloud identities
+    manages workload authentication for supported principal kinds
 
 BucketAccess Controller
     manages permissions between buckets and principals
@@ -100,9 +100,8 @@ Relationship between resources:
 CloudPrincipal CR ───────┬───────────────┐
                          ↓               ↓
               CloudPrincipalAuth CR   BucketAccess CR
-                         ↓               ↓
-              Workload Identity /      IAM binding /
-              Static Credentials       bucket policy
+              (optional; workload      IAM binding /
+               identities only)        bucket policy
                                          ↑
 Bucket CR ──────────────────────────────┘
 ```
@@ -110,11 +109,15 @@ Bucket CR ───────────────────────�
 Conceptually:
 
 ```text
-CloudPrincipal     = who exists in the cloud
-CloudPrincipalAuth = how a workload authenticates as that principal
-BucketAccess       = what that principal can do
+CloudPrincipal     = the cloud IAM subject that receives authorization
+CloudPrincipalAuth = how a workload authenticates as a supported principal
+BucketAccess       = what that principal can do to a bucket
 Bucket             = the object storage resource
 ```
+
+`CloudPrincipal` is an authorization-oriented abstraction. It may represent a controller-managed workload identity or a referenced external user or group.
+
+`CloudPrincipalAuth` is not required for human users or groups. It applies only to principal kinds for which the controller manages workload authentication, such as service accounts and cloud roles.
 
 ## 5. Custom Resources
 
@@ -195,11 +198,7 @@ The controller should not require cloud credentials inside every resource. Resou
 
 ### 6.1 Provider Usage Policy
 
-`ProviderConfig` also defines a provider-level `usagePolicy`. This policy limits which Kubernetes namespaces may use the provider and which external bucket and principal names may be reconciled through it.
-
-This is required because a user who can create `Bucket`, `CloudPrincipal`, or `CloudPrincipalAuth` resources could otherwise point those resources at sensitive existing buckets or high-privilege cloud principals. `usagePolicy` provides a coarse safety boundary before provider-specific reconciliation is attempted.
-
-Initial policy fields:
+`ProviderConfig` defines a provider-level `usagePolicy`. This limits which Kubernetes namespaces may use the provider and which external buckets and principals may be managed or referenced.
 
 ```yaml
 spec:
@@ -215,14 +214,23 @@ spec:
         - vedro-.*
 
     principalPolicy:
-      allowExisting: false
+      allowedKinds:
+        - ServiceAccount
+        - Role
+        - User
+        - Group
+      allowManaged: true
+      allowReferences: true
+      allowAdoption: false
       allowedNamePatterns:
         - vedro-.*
+      allowedReferencePatterns:
+        - .*@example.com
 ```
 
-`allowedNamespaces` defines which Kubernetes namespaces are allowed to reference this `ProviderConfig` from `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, or `BucketAccess` resources.
+`allowedNamespaces` defines which Kubernetes namespaces may reference this `ProviderConfig` from `Bucket`, `CloudPrincipal`, `CloudPrincipalAuth`, or `BucketAccess` resources.
 
-Supported namespace policy forms:
+Supported forms:
 
 ```yaml
 allowedNamespaces:
@@ -236,33 +244,57 @@ allowedNamespaces:
   all: true
 ```
 
-`allowedNamespaces.names` allows only the listed namespaces to use the provider.
+`bucketPolicy.allowExisting` controls whether an existing bucket that is not owned by the same Kubernetes resource may be reconciled.
 
-`allowedNamespaces.all: true` allows resources in any namespace to reference the provider. This should be used only for infrastructure or platform provider configs, and ordinary application users should not be allowed to reference such provider configs unless that is explicitly intended.
-
-`bucketPolicy.allowedNamePatterns` defines the list of allowed external bucket name patterns for buckets reconciled through this provider.
-
-`principalPolicy.allowedNamePatterns` defines the list of allowed external cloud principal name patterns for cloud principals reconciled through this provider.
-
-`bucketPolicy.allowExisting` controls whether the controller may reconcile an already-existing external bucket that was not created by this Kubernetes resource.
-
-`principalPolicy.allowExisting` controls whether the controller may reconcile an already-existing external cloud principal that was not created by this Kubernetes resource.
-
-With `allowExisting: false`, the controller should not adopt arbitrary existing buckets or cloud principals. If the external resource already exists and is not already owned by the same Kubernetes resource, reconciliation should fail.
-
-Recommended infrastructure behavior:
+Principal policy fields:
 
 ```text
-allowExisting: true or omitted depending on implementation default
+allowedKinds:
+  Principal kinds that may be used through this provider.
+
+allowManaged:
+  Whether the controller may create and manage external principals.
+
+allowReferences:
+  Whether CloudPrincipal may reference existing external principals.
+
+allowAdoption:
+  Whether an existing principal may become controller-managed.
+  Recommended default: false.
+
+allowedNamePatterns:
+  Allowed names for managed principals.
+
+allowedReferencePatterns:
+  Allowed external identifiers for referenced principals, such as user or group emails and provider IDs.
 ```
 
-Infrastructure provider configs may intentionally allow reconciliation of existing resources, but they should be restricted to platform namespaces and platform users.
+A referenced principal is intentionally external and is not considered an adopted resource. Therefore, `allowExisting` should not be used to model user or group references.
 
-### 6.2 Ownership Metadata for `allowExisting: false`
+Recommended tenant-facing policy:
 
-When `allowExisting: false` is configured, the controller must distinguish between resources it created and arbitrary pre-existing cloud resources with the same name. This should be enforced by writing controller-owned ownership metadata to external buckets and cloud principals when they are created.
+```yaml
+principalPolicy:
+  allowedKinds:
+    - ServiceAccount
+    - User
+    - Group
+  allowManaged: true
+  allowReferences: true
+  allowAdoption: false
+  allowedNamePatterns:
+    - vedro-.*
+  allowedReferencePatterns:
+    - .*@example.com
+```
 
-For tenant-facing providers, `allowExisting: false` should have the following reconciliation behavior:
+The validating webhook and reconcilers must enforce the same policy before cloud API calls are made.
+
+### 6.2 Ownership Metadata for Managed Resources
+
+For buckets with `allowExisting: false` and principals with `managementPolicy: Managed`, the controller must distinguish resources it created from arbitrary pre-existing resources with the same name. This should be enforced by writing controller-owned ownership metadata when external resources are created.
+
+For tenant-facing providers, managed resources should have the following reconciliation behavior:
 
 ```text
 External resource does not exist:
@@ -293,7 +325,7 @@ vedro.svetoch.dev/uid = <bucket metadata.uid>
 vedro.svetoch.dev/provider-config = <provider config name>
 ```
 
-Recommended ownership metadata for external cloud principals:
+Recommended ownership metadata for managed external cloud principals:
 
 ```text
 vedro.svetoch.dev/managed = true
@@ -368,9 +400,17 @@ spec:
         - vedro-.*
 
     principalPolicy:
-      allowExisting: false
+      allowedKinds:
+        - ServiceAccount
+        - User
+        - Group
+      allowManaged: true
+      allowReferences: true
+      allowAdoption: false
       allowedNamePatterns:
         - vedro-.*
+      allowedReferencePatterns:
+        - .*@example.com
 ```
 
 Example2:
@@ -393,11 +433,21 @@ spec:
         - .*
 
     principalPolicy:
+      allowedKinds:
+        - ServiceAccount
+        - Role
+        - User
+        - Group
+      allowManaged: true
+      allowReferences: true
+      allowAdoption: true
       allowedNamePatterns:
+        - .*
+      allowedReferencePatterns:
         - .*
 ```
 
-The `gcp-dev-apps` provider is intended for application namespaces and restricts bucket and principal names to the `vedro-*` naming scheme. It also sets `allowExisting: false`, so application users cannot point the controller at arbitrary existing buckets or cloud principals.
+The `gcp-dev-apps` provider restricts managed principal names to `vedro-*`, allows only approved referenced identities, and disables adoption. Application users therefore cannot make the controller take ownership of arbitrary existing principals.
 
 The `gcp-dev-infra` provider is intentionally permissive and should be treated as platform or infrastructure-only. Because it allows all namespaces and all bucket/principal names, Kubernetes RBAC and admission policy should prevent ordinary application users from referencing it unless that is explicitly intended.
 
@@ -512,19 +562,49 @@ status:
 
 ## 8. CloudPrincipal Resource
 
-`CloudPrincipal` represents a cloud IAM identity.
+`CloudPrincipal` represents a cloud IAM authorization subject that may receive bucket access.
 
-The name `CloudPrincipal` is preferred over `ServiceAccount` because `ServiceAccount` is already overloaded in Kubernetes and because not every cloud uses the same identity model.
-
-Examples:
+Supported portable kinds:
 
 ```text
-GCP: service account
-AWS: IAM role or IAM user
-Yandex: service account
+ServiceAccount
+Role
+User
+Group
 ```
 
-Example:
+Provider mappings may differ:
+
+```text
+GCP:
+  ServiceAccount, User, Group
+
+AWS:
+  Role, User
+  Group is not a valid principal in an S3 bucket policy and is initially unsupported.
+
+Yandex Cloud:
+  ServiceAccount, User, Group
+```
+
+`CloudPrincipal` has two independent dimensions:
+
+```text
+kind:
+  What kind of IAM subject this is.
+
+managementPolicy:
+  Whether the controller owns the external identity or only references it.
+```
+
+Recommended management policies:
+
+```text
+Managed
+Reference
+```
+
+### 8.1 Managed Principal Example
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -536,33 +616,181 @@ spec:
   providerRef:
     name: gcp-dev
 
-  type: WorkloadIdentity
-  name: app-logs-writer
+  kind: ServiceAccount
+  managementPolicy: Managed
 
-  deletionPolicy: Delete
+  managed:
+    name: app-logs-writer
+    deletionPolicy: Delete
 ```
 
-### 8.1 CloudPrincipal Responsibilities
+A managed principal is created, updated, and optionally deleted by the controller.
+
+Initially, managed principal support should be limited to workload-oriented identities:
+
+```text
+GCP: ServiceAccount
+AWS: Role, optionally User
+Yandex Cloud: ServiceAccount
+```
+
+The controller should not create or manage human users or groups in the initial implementation.
+
+### 8.2 Referenced User Example
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: CloudPrincipal
+metadata:
+  name: alice
+  namespace: my-app
+spec:
+  providerRef:
+    name: gcp-dev
+
+  kind: User
+  managementPolicy: Reference
+
+  reference:
+    externalId: alice@example.com
+    verificationPolicy: BestEffort
+```
+
+### 8.3 Referenced Group Example
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: CloudPrincipal
+metadata:
+  name: developers
+  namespace: my-app
+spec:
+  providerRef:
+    name: gcp-dev
+
+  kind: Group
+  managementPolicy: Reference
+
+  reference:
+    externalId: developers@example.com
+    verificationPolicy: BestEffort
+```
+
+Recommended verification policies:
+
+```text
+Required:
+  The provider must verify that the external principal exists.
+
+BestEffort:
+  Verify when the provider API and controller credentials support it.
+  Otherwise accept the identifier after syntax and usage-policy validation.
+
+None:
+  Treat the identifier as opaque after local validation.
+```
+
+Recommended default for human users and groups:
+
+```text
+BestEffort
+```
+
+Directory-level lookup permissions should not be required merely to grant bucket access when the cloud IAM API accepts a stable principal identifier directly.
+
+### 8.4 CloudPrincipal Spec Shape
+
+```go
+type PrincipalKind string
+
+const (
+    PrincipalKindServiceAccount PrincipalKind = "ServiceAccount"
+    PrincipalKindRole           PrincipalKind = "Role"
+    PrincipalKindUser           PrincipalKind = "User"
+    PrincipalKindGroup          PrincipalKind = "Group"
+)
+
+type PrincipalManagementPolicy string
+
+const (
+    PrincipalManagementPolicyManaged   PrincipalManagementPolicy = "Managed"
+    PrincipalManagementPolicyReference PrincipalManagementPolicy = "Reference"
+)
+
+type CloudPrincipalSpec struct {
+    ProviderRef ProviderReference `json:"providerRef"`
+
+    Kind             PrincipalKind             `json:"kind"`
+    ManagementPolicy PrincipalManagementPolicy `json:"managementPolicy"`
+
+    Managed   *ManagedPrincipalSpec    `json:"managed,omitempty"`
+    Reference *ReferencedPrincipalSpec `json:"reference,omitempty"`
+}
+
+type ManagedPrincipalSpec struct {
+    Name           string         `json:"name,omitempty"`
+    DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
+}
+
+type ReferencedPrincipalSpec struct {
+    ExternalID        string             `json:"externalId"`
+    VerificationPolicy VerificationPolicy `json:"verificationPolicy,omitempty"`
+}
+```
+
+Validation must enforce exactly one branch:
+
+```text
+managementPolicy=Managed:
+  managed must be set
+  reference must be absent
+
+managementPolicy=Reference:
+  reference must be set
+  managed must be absent
+```
+
+### 8.5 CloudPrincipal Responsibilities
 
 The `CloudPrincipal` controller should:
 
-- Ensure the external cloud identity exists.
-- Normalize names according to provider constraints.
-- Store external identity information in status.
-- Delete or retain the external identity according to `deletionPolicy`.
+- Validate the requested principal kind against provider capabilities.
+- Validate the requested management policy against `ProviderConfig.usagePolicy`.
+- For `Managed`, ensure the external principal exists and apply ownership metadata.
+- For `Reference`, resolve or validate the provider-native principal identifier without taking ownership.
+- Never create, modify, or delete referenced users or groups.
+- Normalize the identifier used by provider IAM APIs.
+- Store both user-facing and provider-native identifiers in status.
+- Apply deletion policy only to managed principals.
 
-The `CloudPrincipal` controller should not manage bucket permissions directly.
+### 8.6 CloudPrincipal Status
 
-The `CloudPrincipal` controller should not create workload identity bindings or static credentials directly. Those belong to `CloudPrincipalAuth`.
-
-### 8.2 CloudPrincipal Status
-
-Example for GCP:
+Example for a referenced GCP group:
 
 ```yaml
 status:
+  kind: Group
+  managementPolicy: Reference
+  externalId: developers@example.com
+  providerPrincipalId: group:developers@example.com
+  observedProvider: GCP
+
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: PrincipalResolved
+```
+
+Example for a managed AWS role:
+
+```yaml
+status:
+  kind: Role
+  managementPolicy: Managed
   externalName: app-logs-writer
-  externalId: app-logs-writer@my-project.iam.gserviceaccount.com
+  externalId: arn:aws:iam::123456789012:role/app-logs-writer
+  providerPrincipalId: arn:aws:iam::123456789012:role/app-logs-writer
+  observedProvider: AWS
 
   conditions:
     - type: Ready
@@ -570,32 +798,37 @@ status:
       reason: Reconciled
 ```
 
-Example for AWS:
+The fields have distinct purposes:
 
-```yaml
-status:
-  externalName: app-logs-writer
-  externalId: arn:aws:iam::123456789012:role/app-logs-writer
+```text
+externalId:
+  Stable external identifier exposed to the user.
 
-  conditions:
-    - type: Ready
-      status: "True"
-      reason: Reconciled
+providerPrincipalId:
+  Exact identifier used in provider IAM bindings or policies.
 ```
 
 ## 9. CloudPrincipalAuth Resource
 
-`CloudPrincipalAuth` manages how a Kubernetes workload or consumer authenticates as a `CloudPrincipal`.
+`CloudPrincipalAuth` manages how a Kubernetes workload authenticates as a supported `CloudPrincipal`.
 
-It is intentionally separate from `CloudPrincipal` because authentication lifecycle is different from identity lifecycle.
+It is intentionally separate because authentication lifecycle differs from identity lifecycle.
 
-For example, a single cloud principal may have:
+`CloudPrincipalAuth` is valid only for workload-oriented principal kinds supported by the provider, normally:
 
-- one workload identity binding for an application Kubernetes ServiceAccount
-- another workload identity binding for a job Kubernetes ServiceAccount
-- zero or more static credentials if static keys are unavoidable
+```text
+ServiceAccount
+Role
+```
 
-`CloudPrincipalAuth` supports both keyless authentication and static credentials under a single conceptual API.
+It must be rejected for:
+
+```text
+User
+Group
+```
+
+Human users and groups receive authorization through `BucketAccess`, but their login, federation, MFA, membership, and credentials remain outside this controller.
 
 ### 9.1 Recommended Authentication Methods
 
@@ -606,9 +839,25 @@ WorkloadIdentity
 StaticCredentials
 ```
 
-Prefer `WorkloadIdentity` where possible.
+Prefer `WorkloadIdentity` where possible. Static credentials remain an opt-in escape hatch.
 
-Static credentials should be treated as an escape hatch for systems that cannot use workload identity.
+Compatibility should be validated as a provider-specific matrix:
+
+```text
+ServiceAccount:
+  WorkloadIdentity: commonly supported
+  StaticCredentials: provider-dependent
+
+Role:
+  WorkloadIdentity/Federation: provider-dependent
+  StaticCredentials: normally unsupported
+
+User:
+  Unsupported
+
+Group:
+  Unsupported
+```
 
 ### 9.2 Workload Identity Example
 
@@ -632,9 +881,9 @@ spec:
     serviceAccountMutationPolicy: ValidateOnly
 ```
 
-`serviceAccountMutationPolicy` controls whether the controller only validates required Kubernetes ServiceAccount metadata or also patches it.
+The referenced `CloudPrincipal` must be a compatible kind such as `ServiceAccount` or `Role`.
 
-Recommended values:
+`serviceAccountMutationPolicy` values:
 
 ```text
 ValidateOnly
@@ -645,45 +894,6 @@ Recommended default:
 
 ```text
 ValidateOnly
-```
-
-Behavior:
-
-```text
-ValidateOnly:
-  Check that the referenced Kubernetes ServiceAccount has the required provider-specific annotations.
-  If required annotations are missing, mark CloudPrincipalAuth Ready=False and do not mutate the ServiceAccount.
-
-Patch:
-  Patch the referenced Kubernetes ServiceAccount with the required provider-specific annotations.
-  This mode should be used only when the platform team explicitly wants this controller to manage ServiceAccount metadata.
-```
-
-For GCP Workload Identity, the controller should require or apply the Kubernetes ServiceAccount annotation that points to the target GCP service account.
-
-Example Kubernetes ServiceAccount metadata for GCP:
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: app
-  namespace: my-app
-  annotations:
-    iam.gke.io/gcp-service-account: app-logs-writer@my-project.iam.gserviceaccount.com
-```
-
-Provider mappings:
-
-```text
-GCP:
-  Kubernetes ServiceAccount can impersonate a GCP service account.
-
-AWS:
-  Kubernetes ServiceAccount can assume an IAM role through IRSA or Pod Identity.
-
-Yandex:
-  Provider-specific federation or workload identity mechanism, if supported.
 ```
 
 ### 9.3 Static Credentials Example
@@ -711,9 +921,7 @@ spec:
     deletionPolicy: Delete
 ```
 
-The resulting Kubernetes Secret should contain provider-specific credential material.
-
-The exact Secret keys can be provider-specific, but should be documented and reflected in status.
+Static credentials may only be generated for principal kinds and providers that explicitly support them.
 
 ### 9.4 CloudPrincipalAuth Responsibilities
 
@@ -832,27 +1040,46 @@ It also allows multiple auth methods per principal without changing the principa
 
 ## 10. BucketAccess Resource
 
-`BucketAccess` manages the permission relationship between a bucket and a principal.
+`BucketAccess` manages the authorization relationship between a bucket and a `CloudPrincipal`.
 
-It should not create buckets or principals. It should only reference them.
+It supports any principal kind that the provider can grant bucket access to, including referenced users and groups.
 
-Example:
+Example granting read access to a user:
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
 kind: BucketAccess
 metadata:
-  name: app-logs-writer-access
+  name: alice-reports-reader
   namespace: my-app
 spec:
   bucketRef:
-    name: app-logs
+    name: reports
 
   principalRef:
-    name: app-logs-writer
+    name: alice
 
   access:
-    level: ObjectWriter
+    level: ObjectReader
+```
+
+Example granting read access to a group:
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: BucketAccess
+metadata:
+  name: developers-reports-reader
+  namespace: my-app
+spec:
+  bucketRef:
+    name: reports
+
+  principalRef:
+    name: developers
+
+  access:
+    level: ObjectReader
 ```
 
 ### 10.1 BucketAccess Responsibilities
@@ -863,16 +1090,37 @@ The `BucketAccess` controller should:
 - Resolve the referenced `CloudPrincipal`.
 - Wait until both are ready.
 - Validate that both use the same provider.
-- Grant the requested access.
-- Remove only the IAM binding/policy on deletion.
-- Never delete the bucket or principal.
-- Never manage authentication or credentials.
+- Validate that the provider supports bucket access for the principal kind.
+- Map the portable access level to provider-native roles or policy statements.
+- Ensure the exact desired binding exists.
+- Avoid unnecessary cloud writes when the binding already exists.
+- Remove only the binding owned by this `BucketAccess` on deletion.
+- Never delete the bucket, principal, authentication binding, user, or group.
+
+The controller should call `EnsureBucketAccess` on every reconcile. Provider implementations should observe current IAM state and mutate only when required.
+
+Recommended provider behavior:
+
+```text
+GCP:
+  Read the bucket IAM policy.
+  Check for the exact member and role.
+  Update the policy only when missing.
+  Preserve unrelated bindings and use IAM concurrency metadata.
+
+Yandex Cloud:
+  List access bindings for the target bucket/resource.
+  Check the exact subject type, subject ID, and role.
+  Add the binding only when missing.
+
+AWS:
+  Reconcile deterministic bucket-policy statements for Role or User principals.
+  IAM groups are initially unsupported as S3 bucket-policy principals.
+```
 
 ### 10.2 Access Levels
 
-Use portable access levels instead of raw provider IAM roles.
-
-Recommended initial access levels:
+Portable initial levels:
 
 ```text
 ObjectReader
@@ -881,39 +1129,42 @@ ObjectAdmin
 BucketAdmin
 ```
 
-Example:
+Raw provider roles should not be exposed in the common API by default.
 
-```yaml
-spec:
-  access:
-    level: ObjectWriter
-```
+### 10.3 Access-Level Changes
 
-Provider implementations map this to provider-specific permissions.
+When the desired access level changes, the controller must not leave an obsolete grant behind.
 
-Example mapping:
+Recommended sequence:
 
 ```text
-ObjectWriter:
-  GCP:
-    custom role or predefined role allowing storage.objects.create
-
-  AWS:
-    s3:PutObject on arn:aws:s3:::bucket/*
-
-  Yandex:
-    provider-specific object write permission
+1. Ensure the new grant exists.
+2. Remove the previously applied grant when it differs.
+3. Update status after both operations succeed.
 ```
 
-Raw provider roles should be avoided in the common API unless an advanced escape hatch is explicitly added.
+Granting the new role first avoids a temporary loss of access.
 
-### 10.3 BucketAccess Status
-
-Example:
+Status should record the applied provider role and principal identifier:
 
 ```yaml
 status:
-  bindingId: bucket/app-logs-dev:principal/app-logs-writer:ObjectWriter
+  applied:
+    principalKind: User
+    providerPrincipalId: user:alice@example.com
+    providerRole: roles/storage.objectViewer
+```
+
+### 10.4 BucketAccess Status
+
+```yaml
+status:
+  bindingId: bucket/reports:user/alice@example.com:ObjectReader
+
+  applied:
+    principalKind: User
+    providerPrincipalId: user:alice@example.com
+    providerRole: roles/storage.objectViewer
 
   conditions:
     - type: BucketReady
@@ -928,17 +1179,6 @@ status:
     - type: Ready
       status: "True"
       reason: AccessGranted
-```
-
-If a dependency is not ready:
-
-```yaml
-status:
-  conditions:
-    - type: Ready
-      status: "False"
-      reason: BucketNotReady
-      message: Referenced Bucket app-logs is not Ready
 ```
 
 ## 11. Bucket Attributes and Multi-Cloud Differences
@@ -1088,9 +1328,51 @@ status:
 
 ## 13. Provider Capabilities
 
-Each provider implementation should expose capabilities.
+Provider capabilities must distinguish principal creation, principal reference, authentication, and authorization.
 
-Example Go type:
+```go
+type PrincipalCapabilities struct {
+    ManagedKinds    map[PrincipalKind]bool
+    ReferencedKinds map[PrincipalKind]bool
+    AccessKinds     map[PrincipalKind]bool
+
+    AuthMethods map[PrincipalKind]map[AuthMethod]bool
+}
+```
+
+This answers four different questions:
+
+```text
+Can the provider implementation create this principal kind?
+Can it reference an existing principal of this kind?
+Can it configure authentication for this principal kind?
+Can this principal kind receive bucket access?
+```
+
+Example initial capability matrix:
+
+```text
+GCP:
+  Managed: ServiceAccount
+  Referenced: ServiceAccount, User, Group
+  Bucket access: ServiceAccount, User, Group
+  Auth: ServiceAccount
+
+AWS:
+  Managed: Role, optionally User
+  Referenced: Role, User
+  Bucket access: Role, User
+  Auth: Role
+  Group: unsupported for S3 bucket-policy authorization
+
+Yandex Cloud:
+  Managed: ServiceAccount
+  Referenced: ServiceAccount, User, Group
+  Bucket access: ServiceAccount, User, Group
+  Auth: ServiceAccount where supported
+```
+
+Bucket, authentication, and access capabilities remain explicit:
 
 ```go
 type BucketCapabilities struct {
@@ -1102,66 +1384,36 @@ type BucketCapabilities struct {
     PublicAccessBlock        bool
     Tags                     bool
 }
-```
 
-Authentication capabilities should also be explicit:
-
-```go
-type AuthCapabilities struct {
-    WorkloadIdentity  bool
-    StaticCredentials bool
-    CredentialRotation bool
-}
-```
-
-Access capabilities should also be explicit:
-
-```go
 type AccessCapabilities struct {
-    ObjectReader bool
-    ObjectWriter bool
-    ObjectAdmin  bool
-    BucketAdmin  bool
+    ObjectReader       bool
+    ObjectWriter       bool
+    ObjectAdmin        bool
+    BucketAdmin        bool
     PrefixScopedAccess bool
     ConditionalAccess  bool
 }
 ```
 
-The controller should validate requested features against provider capabilities before applying changes.
-
-Example behavior:
+Unsupported principal-kind combinations must produce explicit conditions such as:
 
 ```text
-User enables lifecycle transition
-Provider does not support lifecycle transition
-    ↓
-Bucket Ready=False
-Reason=UnsupportedFeature
-Message=Provider does not support lifecycle transition rules
-```
-
-Example auth behavior:
-
-```text
-User creates CloudPrincipalAuth with method WorkloadIdentity
-Provider does not support workload identity
-    ↓
-CloudPrincipalAuth Ready=False
-Reason=UnsupportedAuthMethod
-Message=Provider does not support WorkloadIdentity for this principal type
+Reason: UnsupportedPrincipalKind
+Message: AWS IAM groups cannot be used as principals in S3 bucket policies
 ```
 
 ## 14. Provider Interface
 
-Use a common provider interface and provider-specific implementations.
-
-Example bucket interface:
+Use common provider interfaces and provider-specific implementations.
 
 ```go
-type BucketProvider interface {
-    ValidateBucketSpec(spec BucketSpec) ValidationResult
-    EnsureBucket(ctx context.Context, spec BucketSpec) (*BucketState, error)
-    DeleteBucket(ctx context.Context, status BucketStatus) error
+type PrincipalState struct {
+    Kind                PrincipalKind
+    ManagementPolicy    PrincipalManagementPolicy
+    ExternalName        string
+    ExternalID          string
+    ProviderPrincipalID string
+    Provider            ProviderType
 }
 ```
 
@@ -1170,8 +1422,21 @@ Principal interface:
 ```go
 type PrincipalProvider interface {
     ValidatePrincipalSpec(spec CloudPrincipalSpec) ValidationResult
-    EnsurePrincipal(ctx context.Context, spec CloudPrincipalSpec) (*PrincipalState, error)
-    DeletePrincipal(ctx context.Context, status CloudPrincipalStatus) error
+
+    EnsureManagedPrincipal(
+        ctx context.Context,
+        spec CloudPrincipalSpec,
+    ) (*PrincipalState, error)
+
+    ResolveReferencedPrincipal(
+        ctx context.Context,
+        spec CloudPrincipalSpec,
+    ) (*PrincipalState, error)
+
+    DeleteManagedPrincipal(
+        ctx context.Context,
+        status CloudPrincipalStatus,
+    ) error
 }
 ```
 
@@ -1179,13 +1444,21 @@ Authentication interface:
 
 ```go
 type PrincipalAuthProvider interface {
-    ValidatePrincipalAuthSpec(spec CloudPrincipalAuthSpec) ValidationResult
+    ValidatePrincipalAuthSpec(
+        principal PrincipalState,
+        spec CloudPrincipalAuthSpec,
+    ) ValidationResult
+
     EnsurePrincipalAuth(
         ctx context.Context,
         principal PrincipalState,
         spec CloudPrincipalAuthSpec,
     ) (*PrincipalAuthState, error)
-    DeletePrincipalAuth(ctx context.Context, status CloudPrincipalAuthStatus) error
+
+    DeletePrincipalAuth(
+        ctx context.Context,
+        status CloudPrincipalAuthStatus,
+    ) error
 }
 ```
 
@@ -1193,15 +1466,33 @@ Bucket access interface:
 
 ```go
 type BucketAccessProvider interface {
-    ValidateBucketAccessSpec(spec BucketAccessSpec) ValidationResult
+    ValidateBucketAccessSpec(
+        principal PrincipalState,
+        spec BucketAccessSpec,
+    ) ValidationResult
+
     EnsureBucketAccess(
         ctx context.Context,
         bucket BucketState,
         principal PrincipalState,
         access AccessSpec,
     ) (*AccessState, error)
-    DeleteBucketAccess(ctx context.Context, status BucketAccessStatus) error
+
+    RevokeBucketAccess(
+        ctx context.Context,
+        bucket BucketState,
+        principal PrincipalState,
+        applied AppliedAccessState,
+    ) error
 }
+```
+
+`EnsureBucketAccess` is called on every reconciliation, but should avoid unnecessary writes:
+
+```text
+observe current IAM state
+compare with desired binding
+mutate only when missing or different
 ```
 
 Provider implementations:
@@ -1210,23 +1501,6 @@ Provider implementations:
 internal/cloud/gcp
 internal/cloud/aws
 internal/cloud/yandex
-```
-
-Provider registry:
-
-```go
-func NewProvider(cfg ProviderConfig) (CloudProvider, error) {
-    switch cfg.Spec.Type {
-    case "GCP":
-        return gcp.New(cfg)
-    case "AWS":
-        return aws.New(cfg)
-    case "Yandex":
-        return yandex.New(cfg)
-    default:
-        return nil, fmt.Errorf("unsupported provider type %q", cfg.Spec.Type)
-    }
-}
 ```
 
 ## 15. Reconciliation Model
@@ -1318,64 +1592,70 @@ func (r *BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 ## 17. CloudPrincipal Controller Flow
 
 ```text
-1. Fetch CloudPrincipal CR
-2. Fetch ProviderConfig
-3. Build provider client
-4. Validate principal spec
-5. Add finalizer if missing
+1. Fetch CloudPrincipal CR.
+2. Fetch ProviderConfig.
+3. Validate namespace and principal usage policy.
+4. Validate principal kind and management policy against provider capabilities.
+5. Add finalizer when required.
 6. If deleting:
-     - apply deletionPolicy
-     - remove finalizer
-7. Ensure external principal exists
-8. Update status
-9. Set Ready=True
+     - Managed: apply deletion policy and remove finalizer.
+     - Reference: remove finalizer without touching the external principal.
+7. If managementPolicy=Managed:
+     - ensure the external principal exists
+     - verify ownership metadata
+8. If managementPolicy=Reference:
+     - validate the external identifier
+     - resolve or verify it according to verificationPolicy
+     - never take ownership
+9. Normalize providerPrincipalId.
+10. Update status.
+11. Set Ready=True.
 ```
 
 ## 18. CloudPrincipalAuth Controller Flow
 
 ```text
-1. Fetch CloudPrincipalAuth CR
-2. Resolve referenced CloudPrincipal
-3. Wait until CloudPrincipal is Ready
-4. Build provider client from CloudPrincipal.providerRef
-5. Validate requested auth method
-6. Add finalizer if missing
-7. If deleting:
+1. Fetch CloudPrincipalAuth CR.
+2. Resolve referenced CloudPrincipal.
+3. Wait until CloudPrincipal is Ready.
+4. Reject principal kinds that cannot authenticate, including User and Group.
+5. Build provider client from CloudPrincipal.providerRef.
+6. Validate the requested auth method against provider and principal-kind capabilities.
+7. Add finalizer if missing.
+8. If deleting:
      - remove workload identity binding or revoke generated credentials
-     - optionally delete generated Secret depending on deletion policy
      - remove finalizer
-8. For WorkloadIdentity:
+9. For WorkloadIdentity:
      - fetch the referenced Kubernetes ServiceAccount
-     - compute required provider-specific ServiceAccount annotations
-     - if annotations are missing and serviceAccountMutationPolicy is ValidateOnly, set Ready=False
-     - if annotations are missing and serviceAccountMutationPolicy is Patch, patch the ServiceAccount
-9. Ensure auth method exists
-10. Publish or update Secret if method is StaticCredentials
-11. Update status
-12. Set Ready=True
+     - validate or patch required metadata
+     - ensure the provider trust/federation relationship
+10. For StaticCredentials:
+     - create or rotate credentials
+     - publish them to the configured Secret destination
+11. Update status.
+12. Set Ready=True.
 ```
-
-For `WorkloadIdentity`, the controller configures the relevant trust/federation relationship and validates or patches required Kubernetes ServiceAccount annotations.
-
-For `StaticCredentials`, the controller creates, rotates, and revokes credential material and writes it to the configured Secret target.
 
 ## 19. BucketAccess Controller Flow
 
 ```text
-1. Fetch BucketAccess CR
-2. Resolve referenced Bucket
-3. Resolve referenced CloudPrincipal
-4. Check both resources are Ready
-5. Check both resources use the same provider
-6. Build provider client from referenced provider
-7. Validate access level support
-8. Add finalizer if missing
-9. If deleting:
-     - remove IAM binding/policy only
+1. Fetch BucketAccess CR.
+2. Resolve referenced Bucket.
+3. Resolve referenced CloudPrincipal.
+4. Wait until both are Ready.
+5. Check both resources use the same provider.
+6. Validate provider support for the principal kind and access level.
+7. Add finalizer if missing.
+8. If deleting:
+     - revoke only the previously applied IAM binding or policy statement
      - remove finalizer
-10. Ensure access grant exists
-11. Update status
-12. Set Ready=True
+9. Call EnsureBucketAccess.
+10. Provider implementation reads current IAM state and writes only when needed.
+11. If desired access differs from status.applied:
+      - ensure the new grant
+      - revoke the old applied grant
+12. Update status.applied and conditions.
+13. Set Ready=True.
 ```
 
 ## 20. Watches
@@ -1436,12 +1716,25 @@ Retain
 
 ### 21.2 CloudPrincipal Deletion Policy
 
-Recommended values:
+Deletion behavior depends on `managementPolicy`.
+
+```text
+Managed:
+  Apply managed.deletionPolicy.
+
+Reference:
+  Never delete or modify the external principal.
+  Remove only Kubernetes-side bookkeeping and finalizers.
+```
+
+Recommended managed deletion policies:
 
 ```text
 Retain
 Delete
 ```
+
+Human users and groups should normally use `managementPolicy: Reference` and therefore remain unaffected when the Kubernetes resource is deleted.
 
 ### 21.3 CloudPrincipalAuth Deletion
 
@@ -1484,20 +1777,15 @@ Do not make `BucketAccess` own `Bucket` or `CloudPrincipal`, because the relatio
 ```text
 One bucket can have many access grants.
 One principal can access many buckets.
-One principal can have multiple auth methods.
+One managed workload principal can have multiple auth methods.
+A referenced user or group normally has no CloudPrincipalAuth resource.
 ```
 
-Use `ownerReferences` only when a higher-level CR creates lower-level CRs.
+Ownership metadata applies only to `managementPolicy: Managed` principals.
 
-Example:
+Referenced users, groups, roles, and service accounts are not adopted, tagged, modified, or deleted by the `CloudPrincipal` controller.
 
-```text
-ApplicationStorage
-    owns Bucket
-    owns CloudPrincipal
-    owns CloudPrincipalAuth
-    owns BucketAccess
-```
+Use `ownerReferences` only when a higher-level CR creates lower-level resources.
 
 ## 23. Drift Handling
 
@@ -1713,41 +2001,39 @@ Do not expose arbitrary IAM roles by default.
 Use predefined portable access levels.
 Prefer WorkloadIdentity over StaticCredentials.
 Make StaticCredentials opt-in.
-Support credential rotation if StaticCredentials are used.
-Use least-privilege credentials for the controller.
 Default bucket deletionPolicy to Retain.
 Use finalizers.
-Store external IDs in status.
-Validate provider-specific config.
-Never silently ignore unsupported fields.
-Use status conditions for all important states.
+Store external IDs, never credential material, in status.
+Validate provider-specific configuration.
+Never silently ignore unsupported fields or principal kinds.
 ```
 
-Usage policy should be enforced consistently:
+Principal-specific safety rules:
 
 ```text
-ProviderConfig.usagePolicy must restrict which namespaces can use a provider.
-ProviderConfig.usagePolicy.bucketPolicy must restrict which bucket names can be reconciled.
-ProviderConfig.usagePolicy.principalPolicy must restrict which cloud principal names can be reconciled.
-Permissive infrastructure ProviderConfigs should be protected with Kubernetes RBAC and admission policy.
-Admission webhooks should reject resources that violate usagePolicy before reconciliation.
-The controller should re-check usagePolicy before making cloud API calls.
-For providers with allowExisting=false, the controller should create and verify ownership metadata before reconciling external buckets or principals.
-Users should not be able to provide labels, tags, descriptions, or provider-specific metadata using reserved ownership prefixes such as vedro.svetoch.dev/*.
-Ownership metadata helps prevent accidental adoption, but it must not be the only security boundary if users have direct cloud-side permissions to edit metadata on sensitive resources.
-Cloud IAM should prevent ordinary users from modifying labels, tags, descriptions, IAM policies, or credentials for protected buckets and principals.
+Treat Managed and Reference as different lifecycle modes.
+Do not create or delete human users or groups in the initial implementation.
+Do not manage group membership.
+Do not require directory-admin permissions merely to use a user or group as an IAM subject.
+Restrict referenced external IDs through ProviderConfig usage policy.
+Reject CloudPrincipalAuth for User and Group kinds.
+Reject unsupported provider combinations, such as AWS Group for S3 bucket policies.
+Never mutate referenced principal metadata.
 ```
 
-For static credentials:
+Bucket-access reconciliation rules:
 
 ```text
-Avoid static credentials unless required.
-Write generated credentials only to explicitly requested destinations.
-Never store credential material in CR status.
-Expose only credential IDs, timestamps, and Secret references in status.
-Support revocation on deletion.
-Support rotation.
+Read and compare current IAM state before writing.
+Preserve bindings owned by other systems.
+Use concurrency controls and retry conflicts.
+Avoid unconditional policy writes on every reconcile.
+Record the applied provider role and principal identifier in status.
+On access-level changes, grant the new role before revoking the old role.
+On deletion, revoke only the binding represented by the BucketAccess resource.
 ```
+
+Usage policy must be enforced by admission and again during reconciliation.
 
 ## 28. COSI Integration
 
@@ -1770,27 +2056,9 @@ Optional COSI adapter:
 
 Avoid creating one COSI driver per bucket. Drivers should represent provider/back-end implementations, not individual buckets.
 
-## 29. Example End-to-End Flow
+## 29. Example End-to-End Flows
 
-User creates a bucket:
-
-```yaml
-apiVersion: vedro.svetoch.dev/v1alpha1
-kind: Bucket
-metadata:
-  name: app-logs
-  namespace: my-app
-spec:
-  providerRef:
-    name: aws-dev
-  name: app-logs-dev
-  location: eu-central-1
-  deletionPolicy: Retain
-  versioning:
-    enabled: true
-```
-
-User creates a principal:
+### 29.1 Managed Workload Principal
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -1800,13 +2068,13 @@ metadata:
   namespace: my-app
 spec:
   providerRef:
-    name: aws-dev
-  type: WorkloadIdentity
-  name: app-logs-writer
-  deletionPolicy: Delete
+    name: gcp-dev
+  kind: ServiceAccount
+  managementPolicy: Managed
+  managed:
+    name: app-logs-writer
+    deletionPolicy: Delete
 ```
-
-User creates authentication for the principal:
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -1817,16 +2085,12 @@ metadata:
 spec:
   principalRef:
     name: app-logs-writer
-
   method: WorkloadIdentity
-
   workloadIdentity:
     kubernetesServiceAccountRef:
       name: app
       namespace: my-app
 ```
-
-User grants bucket access:
 
 ```yaml
 apiVersion: vedro.svetoch.dev/v1alpha1
@@ -1837,32 +2101,81 @@ metadata:
 spec:
   bucketRef:
     name: app-logs
-
   principalRef:
     name: app-logs-writer
-
   access:
     level: ObjectWriter
 ```
 
-Expected reconciliation:
+### 29.2 Referenced Cloud User
 
-```text
-Bucket controller:
-  creates or updates external bucket
-
-CloudPrincipal controller:
-  creates or updates external cloud principal
-
-CloudPrincipalAuth controller:
-  configures workload identity authentication for the principal
-
-BucketAccess controller:
-  waits for bucket and principal
-  validates provider match
-  grants ObjectWriter access
-  updates status
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: CloudPrincipal
+metadata:
+  name: alice
+  namespace: my-app
+spec:
+  providerRef:
+    name: gcp-dev
+  kind: User
+  managementPolicy: Reference
+  reference:
+    externalId: alice@example.com
+    verificationPolicy: BestEffort
 ```
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: BucketAccess
+metadata:
+  name: alice-app-logs-reader
+  namespace: my-app
+spec:
+  bucketRef:
+    name: app-logs
+  principalRef:
+    name: alice
+  access:
+    level: ObjectReader
+```
+
+No `CloudPrincipalAuth` is created for the user.
+
+### 29.3 Referenced Cloud Group
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: CloudPrincipal
+metadata:
+  name: developers
+  namespace: my-app
+spec:
+  providerRef:
+    name: yc-dev
+  kind: Group
+  managementPolicy: Reference
+  reference:
+    externalId: aje-example-group-id
+    verificationPolicy: BestEffort
+```
+
+```yaml
+apiVersion: vedro.svetoch.dev/v1alpha1
+kind: BucketAccess
+metadata:
+  name: developers-app-logs-reader
+  namespace: my-app
+spec:
+  bucketRef:
+    name: app-logs
+  principalRef:
+    name: developers
+  access:
+    level: ObjectReader
+```
+
+No `CloudPrincipalAuth` is created for the group, and the controller does not manage group membership.
 
 ## 30. Recommended Initial Version
 
@@ -1876,38 +2189,57 @@ CloudPrincipalAuth
 BucketAccess
 ```
 
-Support a small portable bucket API:
+Principal model:
 
 ```text
-name
-location
-labels
-versioning
-simple lifecycle expiration rules
-deletionPolicy
-cloudSpecificConfig.<cloud>
-unsupportedFeaturePolicy
+CloudPrincipal.kind:
+  ServiceAccount
+  Role
+  User
+  Group
+
+CloudPrincipal.managementPolicy:
+  Managed
+  Reference
 ```
 
-Support a small portable access API:
+Initial support matrix:
 
 ```text
-ObjectReader
-ObjectWriter
-ObjectAdmin
-BucketAdmin
+GCP:
+  Managed ServiceAccount
+  Referenced ServiceAccount, User, Group
+  Bucket access for ServiceAccount, User, Group
+
+AWS:
+  Managed/Referenced Role
+  Referenced User
+  Bucket access for Role and User
+  Group unsupported initially
+
+Yandex Cloud:
+  Managed ServiceAccount
+  Referenced ServiceAccount, User, Group
+  Bucket access for ServiceAccount, User, Group
 ```
 
-Support one preferred auth API:
+Authentication:
 
 ```text
-CloudPrincipalAuth.method = WorkloadIdentity
+CloudPrincipalAuth only for ServiceAccount and Role where supported.
+WorkloadIdentity preferred.
+StaticCredentials opt-in only.
+User and Group rejected as unsupported authentication subjects.
 ```
 
-Add static credentials only if needed:
+Bucket access reconciliation:
 
 ```text
-CloudPrincipalAuth.method = StaticCredentials
+Call EnsureBucketAccess on every reconcile.
+Read current provider IAM state.
+Write only when the desired binding is missing or differs.
+Preserve unrelated bindings.
+Track applied role and provider principal ID in status.
 ```
 
 Default safety choices:
@@ -1916,8 +2248,9 @@ Default safety choices:
 Bucket deletionPolicy: Retain
 Unsupported feature policy: Fail
 Drift policy: Correct
-Authentication preference: WorkloadIdentity
-Static credentials: opt-in only
+Referenced-principal verification: BestEffort
+Managed human users/groups: unsupported
+Group membership management: out of scope
 ```
 
 ## 31. Future Extensions
