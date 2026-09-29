@@ -24,7 +24,7 @@ cd argocd/charts/infra/charts/argocd
 helm dependency update
 cd -
 kubectl delete secret argocd-redis -n argocd
-helm upgrade --install  argocd-gcp-int argocd/charts/infra/charts/argocd/ --set  "redis.enabled=false" --values=argocd/environments/gcp-int/argocd/values.yaml --values argocd/charts/infra/charts/globals.yaml --namespace argocd --set "argocd.redis.enabled=true" --set "probes.enabled=false" --set global.env.name=internal --set global.env.short_name=int --set global.env.cloud_short_name=gcp-int --set-string global.env.dns.domain=int.rod.svetoch.dev
+helm upgrade --install  argocd-gcp-int argocd/charts/infra/charts/argocd/ --set  "redis.enabled=false" --values=argocd/environments/gcp-int/argocd/values.yaml --values argocd/charts/infra/charts/globals.yaml --namespace argocd --set "argocd.redis.enabled=true" --set "probes.enabled=false" --set global.env.name=internal --set global.env.short_name=int --set global.env.cloud_short_name=gcp-int --set-string global.env.dns.domain=<int.your-domain>
 ```
 
 3. Creating a root argocd application
