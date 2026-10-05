@@ -18,13 +18,15 @@ kubectl apply --server-side --validate=false -f argocd/charts/infra/crds/argocd/
 
 2. Installation of argocd helm release
 
+Replace `<registry-url>` with the value of `global.env.registry.url`; direct chart installation requires the resolved image repository. Bootstrap uses built-in Redis, so `argocd.externalRedis.host` must be empty.
+
 ```
 helm repo add argo https://argoproj.github.io/argo-helm
 cd argocd/charts/infra/charts/argocd
 helm dependency update
 cd -
 kubectl delete secret argocd-redis -n argocd
-helm upgrade --install  argocd-gcp-int argocd/charts/infra/charts/argocd/ --set  "redis.enabled=false" --values=argocd/environments/gcp-int/argocd/values.yaml --values argocd/charts/infra/charts/globals.yaml --namespace argocd --set "argocd.redis.enabled=true" --set "probes.enabled=false" --set global.env.name=internal --set global.env.short_name=int --set global.env.cloud_short_name=gcp-int --set-string global.env.dns.domain=<int.your-domain>
+helm upgrade --install  argocd-gcp-int argocd/charts/infra/charts/argocd/ --set  "redis.enabled=false" --values=argocd/environments/gcp-int/argocd/values.yaml --values argocd/charts/infra/charts/globals.yaml --namespace argocd --set "argocd.enabled=true" --set "argocd.redis.enabled=true" --set-string "argocd.externalRedis.host=" --set-string "argocd.global.image.repository=<registry-url>/argocd" --set-string "argocd.global.image.tag=v3.5.3" --set "probes.enabled=false" --set "prometheus-rules.enabled=false" --set global.env.name=internal --set global.env.short_name=int --set global.env.cloud_short_name=gcp-int --set-string "global.env.dns.domain=<int.your-domain>"
 ```
 
 3. Creating a root argocd application
