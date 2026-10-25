@@ -1,0 +1,13 @@
+title: Модель контекста для ИИ-агентов Svetoch
+rep-number: 7
+authors:
+  - "@CyberCuCuber"
+component: architecture
+status:
+  name: draft
+  emoji: 📝
+creation-date: 25.10.2026
+reviewers:
+  - "@ggramal"
+  - "@dmitry231187"
+approvers: []
