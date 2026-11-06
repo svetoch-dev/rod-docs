@@ -1,0 +1,7 @@
+# Shared infrastructure rules
+
+- Start from the working repository's root `AGENTS.md`; read its rod-docs tag, local navigation, and the instructions in affected directories. Resolve code versions from dependency declarations and submodule gitlinks.
+- Load only the topic and module needed for the task. Check the selected version's actual input, output, values, and target interfaces before editing. Keep product and environment data in the consuming repository.
+- Use source declarations for analysis. Do not pass credentials, secret values, `*.tfstate`, `*.tfplan`, Terraform command output, CI plan artifacts, or rendered sensitive values into AI context. A `terraform_remote_state` declaration is a dependency edge, not permission to read state. Do not inspect `tfvars` values unless the task requires them and access is explicitly authorized.
+- Prepare source changes and local checks. Do not run Terraform `plan`, `apply`, `destroy`, `import`, state commands, bootstrap, Helm install/upgrade/uninstall, Argo CD sync, Kubernetes writes, or cloud-changing scripts without explicit authorization for the operation. Infrastructure changes go through the consuming repository's established CI.
+- Before running a helper, inspect its effects. Preserve unrelated edits; do not rewrite history, force-push, or discard changes without authorization. Report changed files, checks actually run, and unresolved limits.
