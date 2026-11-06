@@ -11,6 +11,8 @@ The working repository records its own rod-docs **tag** in root `AGENTS.md`. Cod
 | [tf-modules](https://github.com/svetoch-dev/tf-modules) | Reusable Terraform module inputs, implementation and outputs | Each `source` address supplies its own module path and tag; read only the selected `modules/<path>/` at that tag. Different module families may use different tags. |
 | [helm-charts](https://github.com/svetoch-dev/helm-charts) | Shared Helm charts and Argo CD App-of-Apps templates | `.gitmodules` gives URL/path; gitlink gives commit. Read its `AGENTS.md`, then selected `Chart.yaml`, `values.yaml`, templates and `Chart.lock`. `Chart.yaml` aliases map dependency names to values keys. |
 
+Aliases are local names, not versions: Bazel `use_repo` names an external repository or executable in labels, Terraform module block names label local instances while `source` pins code, and Helm `Chart.yaml` aliases select dependency values keys. Trace each alias from its declaration to its consumers before changing it.
+
 | Task | Next page | Consumer-owned facts to locate |
 |---|---|---|
 | CI trigger, tests, plan, deploy | [CI](ci.md) | Workflow, target selection, checks and deployment authorization. |
