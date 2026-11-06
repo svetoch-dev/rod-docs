@@ -1,8 +1,12 @@
 # Terraform context path
 
-1. Read the consumer's `MODULE.bazel` to identify its `bazel-lib` and `rules_tf` refs, Terraform toolchain, and any `load_file.json` / `override_repo` configuration.
-2. If that JSON setup is present, trace the source file through `bazel-lib/tools/extensions.bzl`, `tools/repo_rules/load_json_file.bzl`, and `tools/utils/format.bzl` to `tools/macros/tf.bzl`. The macro renders Terraform root files and declares Bazel targets; use its version at the consumer's pinned ref for exact target names.
-3. Read the affected root's `BUILD.bazel`, `main.tf.tpl` or `.tf`, local variables, and outputs. Resolve each Terraform module's `source` ref from those files. Read only the affected module's inputs, implementation, and outputs at that ref.
-4. For data crossing Terraform roots, inspect the root outputs and any `terraform_remote_state` configuration. Source files do not reveal current state or the results of an apply.
+The consumer owns root configuration and environment selection. `bazel-lib` may generate root files; `rules_tf` supplies Terraform rules and a toolchain; `tf-modules` owns reusable module interfaces. Resolve each version from the consumer before using its documentation.
 
-The `tf-modules` repository contains reusable modules; the consumer owns environment configuration and any local modules. The consumer's CI and runbooks define execution paths.
+| Source edge | Interface to inspect |
+|---|---|
+| Consumer `MODULE.bazel` → `bazel-lib`/`rules_tf` | `git_override` commit, `load_file.json` source, `override_repo`, Terraform toolchain. If used, `bazel-lib/tools/extensions.bzl` loads JSON into `json.bzl`; `tools/utils/format.bzl` and `tools/macros/tf.bzl` select root data and render root files/targets. Inspect declarations without reading values. |
+| Consumer root `BUILD.bazel` → generated root | `tf()` arguments, template `main.tf.tpl`, variable schema, generated file names and target names at the pinned macro version. |
+| Root `main.tf.tpl`/`.tf` → local or shared module | `source` path and tag, input arguments, module `input.tf`/`variables.tf`, output declarations, then only implementation relevant to the task. |
+| Root → another root | `terraform_remote_state` declaration and referenced output names establish a source dependency. Read declarations only; outputs may contain secrets. |
+
+Do not read raw state, plan, command output, generated `tfvars` values or sensitive outputs for context. Source declarations do not establish applied resources or current values. Terraform execution needs operation-specific authorization under [shared rules](AGENTS.md).
