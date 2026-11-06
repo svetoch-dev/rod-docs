@@ -20,7 +20,7 @@ Platform code is distributed across bazel-lib, tf-modules, and helm-charts. Docu
 
 ## Proposed Solution
 
-Keep shared rules, the repository map, and shared skills in rod-docs. The root AGENTS.md of each working repository points to that source and requires the agent to read relevant files directly. Keep repository and local instructions alongside the code. Use skills for specific or complex tasks with a reproducible procedure. Load details as needed for the task.
+Keep shared rules, the repository map, and shared skills in rod-docs. The root AGENTS.md of each working repository points to a pinned rod-docs tag and requires the agent to read relevant files directly. Keep repository and local instructions alongside the code. Use skills for specific or complex tasks with a reproducible procedure. Load details as needed for the task.
 
 ### Desired State
 
@@ -32,23 +32,23 @@ A shared way of working, less repeated investigation and unnecessary context, an
 
 ### Trade-offs
 
-Reading shared context requires access to rod-docs. Changes to shared rules are immediately visible to all repositories; the agent must check them against the code version in use and flag discrepancies.
+Reading shared context requires access to rod-docs. Each repository must deliberately adopt a new tag and check it against the code version in use.
 
 ## Decision log
 
-**Date:** 25.10.2026. **Selected option:** a single shared context source in rod-docs, a pointer to it in each repository's root AGENTS.md, and instructions alongside the code.
+**Date:** 25.10.2026. **Selected option:** a single shared context source in rod-docs, a pointer to its tag in each repository's root AGENTS.md, and instructions alongside the code.
 
 Criteria: availability of shared context, alignment with the code version, initial context size, and maintenance cost.
 
 | Option | Advantages | Limitations |
 |---|---|---|
 | All rules and procedures in each repository's root AGENTS.md | Simple setup; everything is immediately available | Unnecessary context for each task; shared rules are duplicated and diverge |
-| **Pointer from the root AGENTS.md to shared context in rod-docs** | One source without copies; local instructions stay with the code; details are read as needed | Requires access to rod-docs; changes to the shared source are immediately visible to all repositories |
+| **Pointer from the root AGENTS.md to a tag of shared context in rod-docs** | One source without copies; each repository selects a version; details are read as needed | Requires access to rod-docs; moving to a new tag needs a compatibility check |
 | Pinned local copies of shared context | Work from a single checkout with a fixed text version | Copies must be updated and checked for compatibility |
 
 **Why the second option was selected:** shared rules and procedures change in one place. The working repository's root AGENTS.md gives the agent the exact source location and local navigation. For module behavior, the agent checks the code version in use rather than assuming that current documentation matches it.
 
-For each task, the agent records the rod-docs commit it read in the report. This makes the context auditable without copying text or keeping a tracking file in every repository. A link to the current branch does not itself pin a version or prove compatibility with the code.
+The tag in AGENTS.md pins the shared context without copying text or keeping a separate tracking file. rod-docs tags are not moved: shared rule changes receive a new tag, and a working repository updates its pointer after checking compatibility with the code version in use. A tag alone does not prove compatibility.
 
 ## Design Details
 
@@ -83,7 +83,7 @@ Describe each repository's purpose, dependencies, and where to go for each type 
 └── <module>/AGENTS.md                # Additional module rules, if needed
 ~~~
 
-The root AGENTS.md stores the canonical source location: `https://github.com/svetoch-dev/rod-docs/tree/master/docs/ai/`. It explicitly instructs the agent to read `docs/ai/AGENTS.md` and `docs/ai/repositories.md` from rod-docs before working, and to locate the relevant `SKILL.md` under `rod-docs/.agents/skills/` for a repeatable operation. A link provides navigation and does not load instructions into Codex context by itself. Shared files and skills are not copied into the working repository.
+The root AGENTS.md stores a rod-docs tag and the shared context location, for example `https://github.com/svetoch-dev/rod-docs/tree/<rod-docs-tag>/docs/ai/`, where `<rod-docs-tag>` is replaced with an existing tag. It explicitly instructs the agent to read `docs/ai/AGENTS.md` and `docs/ai/repositories.md` from that tag before working, and to locate the relevant `SKILL.md` under `rod-docs/.agents/skills/` at the same tag for a repeatable operation. A link provides navigation and does not load instructions into Codex context by itself. Shared files and skills are not copied into the working repository.
 
 The root AGENTS.md defines the order: **shared rules from rod-docs → dependency versions → instructions for affected directories → applicable skill → code and checks**. It also retains the repository's purpose, local paths, and check commands. Nested instructions refine the rules but do not grant additional authority to change infrastructure. Repository-specific details live in its AGENTS.md, README, and, when needed, its own skills that do not duplicate shared procedures.
 
@@ -107,7 +107,7 @@ A local AGENTS.md applies to its directory and subdirectories. A separate file i
 - A Git submodule has its own root AGENTS.md, shipped with its version. Before changing a submodule, the agent explicitly reads its instructions.
 - Changes to a shared library are made in its repository; the product receives the updated dependency.
 - Use the gitlink commit for a submodule, and the actual refs and resolved dependency versions for Bazel and Terraform. Do not substitute the current master.
-- Shared instructions and skills are read from rod-docs via the pointer in the root AGENTS.md; the rod-docs commit used is recorded in the task report. Code versions come from existing dependency files. If an instruction conflicts with the actual interface of the version in use, the agent flags it and checks the solution against the code; shared context updates are reviewed in rod-docs.
+- Shared instructions and skills are read from rod-docs at the tag in the root AGENTS.md. Code versions come from existing dependency files. If an instruction conflicts with the actual interface of the version in use, the agent flags it and checks the solution against the code. Shared rule updates are reviewed in rod-docs; a working repository's move to a new tag gets a separate compatibility check.
 
 ### 5. Skills: Task-Specific Procedures
 
@@ -142,7 +142,7 @@ The outcome is a diff and a list of checks. The agent prepares changes; CI appli
 ### 6. How Task Context Is Assembled
 
 1. The working repository's root AGENTS.md defines its purpose, local navigation, and checks, and provides the shared source location in rod-docs.
-2. The agent explicitly opens the shared rules and repository map in rod-docs, records the commit read, and identifies relationships with other platform components.
+2. The agent explicitly opens the shared rules and repository map at the specified rod-docs tag and identifies relationships with other platform components.
 3. The agent identifies versions of affected dependencies and reads local AGENTS.md files at the location of the change.
 4. For a repeatable operation, the agent opens the relevant SKILL.md in rod-docs or a local skill; its references and code are read as needed.
 5. Based on this context, the agent prepares changes and checks. Inapplicable modules and procedures are not loaded in full.
