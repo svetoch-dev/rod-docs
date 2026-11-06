@@ -58,8 +58,11 @@ The tag in AGENTS.md pins the shared context without copying text or keeping a s
 rod-docs/
 ├── AGENTS.md                         # Rules for working in rod-docs
 ├── docs/ai/
+│   ├── README.md                     # Short context index
 │   ├── AGENTS.md                     # Shared rules for the entire platform
-│   └── repositories.md               # Repository relationships and task navigation
+│   ├── repositories.md               # Repository relationships and task navigation
+│   ├── terraform.md                  # Context for Terraform/Bazel tasks
+│   └── gitops.md                     # Context for Argo CD/Helm tasks
 └── .agents/skills/<operation>/
     └── SKILL.md                      # Shared procedure for an individual operation
 ~~~
@@ -73,7 +76,7 @@ Include the following in the shared docs/ai/AGENTS.md:
 - Run apply/deploy through CI; prohibit implicit execution of bootstrap, state operations, and cloud writes by the agent.
 - Require a report of changes and checks performed.
 
-Describe each repository's purpose, dependencies, and where to go for each type of change in repositories.md.
+Describe each repository's purpose, dependencies, and where to go for each type of change in repositories.md. README.md provides a short index; terraform.md and gitops.md are opened only for tasks in those areas. Versions and client-specific details stay in the working repository.
 
 ### 2. Working Repository Context
 
@@ -83,7 +86,7 @@ Describe each repository's purpose, dependencies, and where to go for each type 
 └── <module>/AGENTS.md                # Additional module rules, if needed
 ~~~
 
-The root AGENTS.md stores a rod-docs tag and the shared context location, for example `https://github.com/svetoch-dev/rod-docs/tree/<rod-docs-tag>/docs/ai/`, where `<rod-docs-tag>` is replaced with an existing tag. It explicitly instructs the agent to read `docs/ai/AGENTS.md` and `docs/ai/repositories.md` from that tag before working, and to locate the relevant `SKILL.md` under `rod-docs/.agents/skills/` at the same tag for a repeatable operation. A link provides navigation and does not load instructions into Codex context by itself. Shared files and skills are not copied into the working repository.
+The root AGENTS.md stores a rod-docs tag and the shared context location, for example `https://github.com/svetoch-dev/rod-docs/tree/<rod-docs-tag>/docs/ai/`, where `<rod-docs-tag>` is replaced with an existing tag. It explicitly instructs the agent to read `docs/ai/AGENTS.md` and `docs/ai/repositories.md` from that tag before working, to open the matching topic file under `docs/ai/` for a Terraform or GitOps task, and to locate the relevant `SKILL.md` under `rod-docs/.agents/skills/` at the same tag for a repeatable operation. A link provides navigation and does not load instructions into Codex context by itself. Shared files and skills are not copied into the working repository.
 
 The root AGENTS.md defines the order: **shared rules from rod-docs → dependency versions → instructions for affected directories → applicable skill → code and checks**. It also retains the repository's purpose, local paths, and check commands. Nested instructions refine the rules but do not grant additional authority to change infrastructure. Repository-specific details live in its AGENTS.md, README, and, when needed, its own skills that do not duplicate shared procedures.
 
@@ -142,7 +145,7 @@ The outcome is a diff and a list of checks. The agent prepares changes; CI appli
 ### 6. How Task Context Is Assembled
 
 1. The working repository's root AGENTS.md defines its purpose, local navigation, and checks, and provides the shared source location in rod-docs.
-2. The agent explicitly opens the shared rules and repository map at the specified rod-docs tag and identifies relationships with other platform components.
+2. The agent explicitly opens the shared rules and repository map at the specified rod-docs tag; it reads the Terraform or GitOps topic file only for a task in that area.
 3. The agent identifies versions of affected dependencies and reads local AGENTS.md files at the location of the change.
 4. For a repeatable operation, the agent opens the relevant SKILL.md in rod-docs or a local skill; its references and code are read as needed.
 5. Based on this context, the agent prepares changes and checks. Inapplicable modules and procedures are not loaded in full.
