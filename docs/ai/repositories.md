@@ -1,21 +1,15 @@
-# Repository routing
+# Rod repository registry
 
-The working repository records its own rod-docs **tag** in root `AGENTS.md`. Code versions are separate: resolve Bazel aliases and commits in `MODULE.bazel`, Terraform module tags in `source` addresses, and Helm code from the submodule gitlink. A branch named in `.gitmodules` is not the pinned version. Record the consumer's resolved refs, aliases, and local paths beside its code; do not put product metadata here.
+Versions below are the refs selected by the public [Rod template at `ff0c5d2`](https://github.com/svetoch-dev/rod/tree/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351), checked on 2026-11-12. For work in a consuming repository, use its own dependency refs and its selected `rod-docs` tag.
 
-| Repository | Owns | Version and local navigation in consumer |
+| Repository | Template ref | Agent instructions at that ref |
 |---|---|---|
-| [rod-docs](https://github.com/svetoch-dev/rod-docs) | Shared rules, repository map, repeatable skills | Root `AGENTS.md` points to an existing rod-docs tag and `docs/ai/`; topic pages are opened on demand. |
-| [bazel-lib](https://github.com/svetoch-dev/bazel-lib) | Bazel macros, extensions, generated Terraform files, image helpers | `MODULE.bazel` `bazel_dep`/`git_override` gives module name and commit; inspect `tools/` or `deps/images/` at that ref. |
-| [rules_tf](https://github.com/ggramal/rules_tf) | Terraform Bazel rules and toolchain extension | `MODULE.bazel` gives module name, override and toolchain version; inspect `tf/` at that ref. |
-| [rules_bin_tools](https://github.com/ggramal/rules_bin_tools) | Downloaded helper executables | `MODULE.bazel` gives module name, override, extension and `use_repo` executable aliases; inspect `tools/` at that ref. |
-| [tf-modules](https://github.com/svetoch-dev/tf-modules) | Reusable Terraform module inputs, implementation and outputs | Each `source` address supplies its own module path and tag; read only the selected `modules/<path>/` at that tag. Different module families may use different tags. |
-| [helm-charts](https://github.com/svetoch-dev/helm-charts) | Shared Helm charts and Argo CD App-of-Apps templates | `.gitmodules` gives URL/path; gitlink gives commit. Read its `AGENTS.md`, then selected `Chart.yaml`, `values.yaml`, templates and `Chart.lock`. `Chart.yaml` aliases map dependency names to values keys. |
+| [rod](https://github.com/svetoch-dev/rod) | [`ff0c5d2`](https://github.com/svetoch-dev/rod/tree/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351), reference snapshot | No root `AGENTS.md` |
+| [rod-docs](https://github.com/svetoch-dev/rod-docs) | Shared context tag pending | [Shared `docs/ai/AGENTS.md`](AGENTS.md). No root `AGENTS.md` in this draft. |
+| [bazel-lib](https://github.com/svetoch-dev/bazel-lib) | [`v0.30.0`](https://github.com/svetoch-dev/bazel-lib/tree/v0.30.0) | [Root `AGENTS.md`](https://github.com/svetoch-dev/bazel-lib/blob/v0.30.0/AGENTS.md) |
+| [tf-modules](https://github.com/svetoch-dev/tf-modules) | [`v0.26.0`](https://github.com/svetoch-dev/tf-modules/tree/v0.26.0) | No root `AGENTS.md` |
+| [helm-charts](https://github.com/svetoch-dev/helm-charts) | [`v11.8.2`](https://github.com/svetoch-dev/helm-charts/tree/v11.8.2), matches the submodule gitlink | [Root `AGENTS.md`](https://github.com/svetoch-dev/helm-charts/blob/v11.8.2/AGENTS.md) |
+| [rules_tf](https://github.com/ggramal/rules_tf) | [`841d00e`](https://github.com/ggramal/rules_tf/tree/841d00ec6a9d619e278c6adf37b343bda7f1a554), commit pin | No root `AGENTS.md` |
+| [rules_bin_tools](https://github.com/ggramal/rules_bin_tools) | [`d3fefc5`](https://github.com/ggramal/rules_bin_tools/tree/d3fefc59031fe28fcc41918f8e9df752c58c3c49), commit pin | No root `AGENTS.md` |
 
-Aliases are local names, not versions: Bazel `use_repo` names an external repository or executable in labels, Terraform module block names label local instances while `source` pins code, and Helm `Chart.yaml` aliases select dependency values keys. Trace each alias from its declaration to its consumers before changing it.
-
-| Task | Next page | Consumer-owned facts to locate |
-|---|---|---|
-| CI trigger, tests, plan, deploy | [CI](ci.md) | Workflow, target selection, checks and deployment authorization. |
-| Bazel target, helper or image | [Bazel](bazel.md) | `MODULE.bazel`, affected `BUILD.bazel`, aliases and lockfiles. |
-| Terraform root or module | [Terraform](terraform.md) | Root templates, local modules, `source` tags, input/output declarations. |
-| Kubernetes application or chart | [Argo CD and Helm](argocd.md) | Environment values, local charts, submodule gitlink and applicable local instructions. |
+Update this registry when the reference template changes its pins. Sources: [`MODULE.bazel`](https://github.com/svetoch-dev/rod/blob/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351/MODULE.bazel), [Terraform module source](https://github.com/svetoch-dev/rod/blob/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351/terraform/environments/internal/k8s/main.tf.tpl), [Helm submodule gitlink](https://github.com/svetoch-dev/rod/tree/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351/argocd/charts/infra).

@@ -1,5 +1,9 @@
-# AI infrastructure context
+# Rod AI context
 
-Read [shared rules](AGENTS.md) and [repository routing](repositories.md). Open only the topic touched by the task: [CI](ci.md), [Bazel](bazel.md), [Terraform](terraform.md), or [Argo CD and Helm](argocd.md). The consuming repository supplies its own paths, aliases, dependency refs, and local instructions.
+Rod is a reusable infrastructure template for building, deploying, and operating server applications. Its goal is infrastructure that is reliable, observable, scalable, secure, and practical to maintain across products and clouds. [Rod project goals](https://github.com/svetoch-dev/rod/blob/ff0c5d2636291268a5e5d8ecf6dc8f591f32a351/README.md)
 
-These files describe source relationships and interfaces. Check the consumer's pinned code version; the map does not establish runtime or deployed state.
+This directory gives agents a shared entry point. Start with the working repository's root `AGENTS.md`, open the `rod-docs` tag it names, and use the map to locate the owner of the change. Read only the local instructions and interfaces needed to prepare and verify that change.
+
+- [Template map](map.md) shows the parts of Rod and where to look.
+- [Shared rules](AGENTS.md) define how agents work and what requires authorization.
+- [Repository registry](repositories.md) links the repositories, their refs, and their instructions.
