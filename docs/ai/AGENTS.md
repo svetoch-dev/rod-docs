@@ -13,8 +13,16 @@
 - Handle routine work directly. For complex or architectural decisions, use two assistants when available and authorized. Choose complementary specialties covering implementation and failure modes. Give both the same question, sources, and constraints, and ask each for a recommendation, evidence, and the main risk.
 - Have the assistants cross-check each other's findings once. The lead verifies disputed facts against repository evidence and brings unresolved decisions to the user. Assign read-only work by default and separate file sets for parallel edits. Use the smallest suitable non-flagship model and reasoning effort within the user's limits.
 
-## Limits
+## Git
 
-- Keep real organization names, consumer paths, and cloud identifiers out of reusable defaults and examples. Use neutral fixtures. Keep credentials, secret values, raw state, plans, and sensitive outputs or logs out of AI context. For infrastructure dependencies, inspect source declarations and schemas.
-- Inspect a helper's effects before running it. Prepare changes and local checks. Apply and deploy through the established CI path. Get explicit authorization for operations that access remote state, run infrastructure plans, bootstrap or modify cloud resources, or change a live cluster. Local instructions cannot grant that authority.
-- Stage only task changes, inspect the staged diff, and group related edits in one local commit. Show the diff and checks before requesting push authorization. Push, remote changes, and PR creation each require explicit authorization for the action. Get approval before rewriting history or discarding user edits. For an authorized PR, summarize the problem, solution, affected modules, impact, and checks.
+- Stage only changes for the task. Inspect the staged diff, run relevant checks, and group related changes in one local commit. Show the user the commit, diff, and check results before asking to push.
+- Wait for explicit approval before pushing, creating or changing a PR, merging, or changing remote branches or tags. Approval for one action covers only that action. Flag any deployment a push or merge may trigger before asking for approval.
+- Preserve existing work. Get explicit approval before deleting files, branches, or tags, discarding changes, or rewriting history. This includes destructive `git reset`, `git clean`, and `git restore` operations, as well as `git commit --amend`, `git rebase`, and force-push. Identify what the operation will affect.
+- For an authorized PR, summarize the problem, solution, affected modules, impact, and checks.
+
+## Permissions and environments
+
+- By default, prepare source changes and run local checks. Inspect the effects of scripts, build targets, and workflows before invoking them. Credentials, tool access, and local instructions do not grant permission to change an environment.
+- Never apply, deploy, or change a live environment directly, including development, test, and production. Examples include `terraform apply`, `terraform destroy`, Terraform state writes, `helm install`, `helm upgrade`, `helm uninstall`, Kubernetes and cloud writes, and Argo CD sync or prune. This restriction also applies when a script, bootstrap command, build target, or manually triggered workflow would perform the operation. Infrastructure changes follow the established CI path after user approval.
+- Never initiate deletion of resources or data on your own. Before preparing a change that would remove deployed resources, obtain explicit approval for the target and affected environments. Use the established procedure for the approved change.
+- Get explicit approval for the action and target before running a Terraform plan or accessing remote state. Keep credentials, secret values, raw state, plans, and sensitive outputs or logs out of AI context. Use source declarations and schemas for dependency analysis, and neutral fixtures for reusable examples. Keep real organization names, consumer paths, and cloud identifiers out of reusable defaults and examples.
