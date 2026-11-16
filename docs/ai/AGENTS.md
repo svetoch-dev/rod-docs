@@ -8,6 +8,13 @@
 4. Make the smallest change that meets the goal. Reuse existing modules and patterns, preserve user edits and compatible interfaces, and keep product configuration in the consuming repository.
 5. Review the diff and run the repository's relevant checks and configured hooks. Report the result, checks actually run, and remaining gaps. Report significant confirmed issues outside the task separately with evidence and impact.
 
+## KISS and YAGNI
+
+- Apply these rules to code, configuration, automation, and documentation. Reuse existing components and suitable built-ins. Choose one suitable tool per task and use its built-in integrations where they meet the need.
+- Prefer the shortest clear, linear solution. Use descriptive names, including for loop variables. Minimize concepts, functions, and nesting.
+- Implement only what the task requires. Skip speculative features, premature optimization, extra wrappers, custom factories, and custom provider abstractions that hide or swap underlying tools or services. Use required integrations directly.
+- Keep required checks and add checks for concrete failure modes.
+
 ## Planner → Executor → Critic
 
 Use this workflow for complex work, material decisions, or an explicit user request, including a short test. The coordinator dispatches the roles in order, each in a fresh context, accepts the plan and final result, and obtains required approvals from the user. Share only the checkpoint path, goal anchor, and relevant files or refs, plus the accepted plan for the Executor or the candidate diff and check evidence for the Critic.
